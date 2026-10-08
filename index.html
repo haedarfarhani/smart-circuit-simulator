@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Interactive Circuit Lab — design and learn electrical circuits in the browser." />
+    <title>Interactive Circuit Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Vazirmatn:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply persisted theme before first paint to avoid a flash.
+      try {
+        var prefs = JSON.parse(localStorage.getItem('circuit-lab:prefs') || '{}');
+        var theme = prefs.theme || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        if (prefs.locale === 'fa') document.documentElement.setAttribute('dir', 'rtl');
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
