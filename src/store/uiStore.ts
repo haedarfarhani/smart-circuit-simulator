@@ -16,12 +16,47 @@ export interface WireDraft {
    */
   startJunction: import('../models/circuit').WireJunction | null;
 }
-export type Theme = 'dark' | 'light';
+export type Theme = 'dark' | 'light' | 'system';
+export type ResolvedTheme = 'dark' | 'light';
 export type CurrentDirection = 'conventional' | 'electron';
 export type InspectorTab = 'properties' | 'analysis' | 'learning' | 'practice';
-export type BottomPanelTab = 'simulation' | 'oscilloscope' | 'measurements';
+export type BottomPanelTab =
+  | 'simulation'
+  | 'oscilloscope'
+  | 'measurements'
+  | 'console'
+  | 'analysis';
 export type Locale = 'en' | 'fa';
-export type DialogKind = 'about' | 'transfer-import' | 'transfer-export' | null;
+export type DialogKind =
+  | 'about'
+  | 'transfer-import'
+  | 'transfer-export'
+  | 'settings'
+  | null;
+export type Breakpoint = 'mobile' | 'tablet' | 'desktop' | 'wide';
+export type OverlayPanel = 'none' | 'library' | 'inspector';
+
+export interface VizColors {
+  current: string;
+  vpos: string;
+  vneg: string;
+  ac: string;
+  ground: string;
+  overload: string;
+  short: string;
+  inactive: string;
+}
+
+export const DEFAULT_VIZ_COLORS: VizColors = {
+  current: '#10B981',
+  vpos: '#EF4444',
+  vneg: '#3B82F6',
+  ac: '#A855F7',
+  ground: '#64748B',
+  overload: '#F59E0B',
+  short: '#DC2626',
+  inactive: '#94A3B8',
+};
 
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 4;
@@ -38,6 +73,11 @@ export interface Prefs {
   currentDirection: CurrentDirection;
   /** bottom panel height in px (oscilloscope screen area) */
   bottomPanelHeight: number;
+  inspectorCollapsed: boolean;
+  vizColors: VizColors;
+  onboardingDone: boolean;
+  favoriteTypes: string[];
+  recentTypes: string[];
 }
 
 export const MIN_BOTTOM_PANEL_HEIGHT = 200;
@@ -54,6 +94,11 @@ function loadPrefs(): Prefs {
     simulationSpeed: 1,
     currentDirection: 'conventional',
     bottomPanelHeight: DEFAULT_BOTTOM_PANEL_HEIGHT,
+    inspectorCollapsed: false,
+    vizColors: { ...DEFAULT_VIZ_COLORS },
+    onboardingDone: false,
+    favoriteTypes: [],
+    recentTypes: [],
   };
   try {
     if (typeof localStorage === 'undefined') return fallback;
@@ -69,8 +114,10 @@ function loadPrefs(): Prefs {
             MAX_BOTTOM_PANEL_HEIGHT,
           )
         : DEFAULT_BOTTOM_PANEL_HEIGHT;
+    const theme: Theme =
+      p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark';
     return {
-      theme: p.theme === 'light' ? 'light' : 'dark',
+      theme,
       locale: p.locale === 'fa' ? 'fa' : 'en',
       gridVisible: p.gridVisible !== false,
       snapEnabled: p.snapEnabled !== false,
@@ -78,6 +125,11 @@ function loadPrefs(): Prefs {
       simulationSpeed: typeof p.simulationSpeed === 'number' ? p.simulationSpeed : 1,
       currentDirection: p.currentDirection === 'electron' ? 'electron' : 'conventional',
       bottomPanelHeight: height,
+      inspectorCollapsed: p.inspectorCollapsed === true,
+      vizColors: { ...DEFAULT_VIZ_COLORS, ...(p.vizColors ?? {}) },
+      onboardingDone: p.onboardingDone === true,
+      favoriteTypes: Array.isArray(p.favoriteTypes) ? p.favoriteTypes : [],
+      recentTypes: Array.isArray(p.recentTypes) ? p.recentTypes : [],
     };
   } catch {
     return fallback;
@@ -120,6 +172,15 @@ export interface UiState {
   /** height of the bottom panel (resizable via drag handle) */
   bottomPanelHeight: number;
   sidebarCollapsed: boolean;
+  inspectorCollapsed: boolean;
+  overlay: OverlayPanel;
+  breakpoint: Breakpoint;
+  vizColors: VizColors;
+  onboardingDone: boolean;
+  favoriteTypes: string[];
+  recentTypes: string[];
+  legendVisible: boolean;
+  scopeFullscreen: boolean;
 
   setTool(t: Tool): void;
   select(ids: string[]): void;
@@ -144,6 +205,16 @@ export interface UiState {
   setBottomPanelHeight(h: number): void;
   setSidebarCollapsed(v: boolean): void;
   toggleSidebar(): void;
+  setInspectorCollapsed(v: boolean): void;
+  toggleInspector(): void;
+  setOverlay(v: OverlayPanel): void;
+  setBreakpoint(bp: Breakpoint): void;
+  setVizColors(c: Partial<VizColors>): void;
+  setOnboardingDone(v: boolean): void;
+  toggleFavorite(type: string): void;
+  recordRecent(type: string): void;
+  setLegendVisible(v: boolean): void;
+  setScopeFullscreen(v: boolean): void;
 }
 
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -172,6 +243,15 @@ export const useUiStore = create<UiState>((set, get) => {
     bottomPanelOpen: false,
     bottomPanelHeight: prefs.bottomPanelHeight,
     sidebarCollapsed: false,
+    inspectorCollapsed: prefs.inspectorCollapsed,
+    overlay: 'none',
+    breakpoint: 'desktop',
+    vizColors: prefs.vizColors,
+    onboardingDone: prefs.onboardingDone,
+    favoriteTypes: prefs.favoriteTypes,
+    recentTypes: prefs.recentTypes,
+    legendVisible: false,
+    scopeFullscreen: false,
 
     setTool: (t) => set({ tool: t, statusKey: null }),
     select: (ids) => set({ selection: ids }),
@@ -190,7 +270,8 @@ export const useUiStore = create<UiState>((set, get) => {
       applyTheme(t);
     },
     toggleTheme: () => {
-      const next: Theme = get().theme === 'dark' ? 'light' : 'dark';
+      const cur = get().theme;
+      const next: Theme = cur === 'dark' ? 'light' : 'dark';
       get().setTheme(next);
     },
     setLocale: (l) => {
@@ -246,7 +327,65 @@ export const useUiStore = create<UiState>((set, get) => {
       persistPrefs({ ...prefsFrom(get()), bottomPanelHeight: height });
     },
     setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
-    toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
+    toggleSidebar: () => {
+      const bp = get().breakpoint;
+      if (bp === 'tablet' || bp === 'mobile') {
+        set({ overlay: get().overlay === 'library' ? 'none' : 'library' });
+        return;
+      }
+      set({ sidebarCollapsed: !get().sidebarCollapsed });
+    },
+    setInspectorCollapsed: (v) => {
+      set({ inspectorCollapsed: v });
+      persistPrefs({ ...prefsFrom(get()), inspectorCollapsed: v });
+    },
+    toggleInspector: () => {
+      const bp = get().breakpoint;
+      if (bp === 'tablet' || bp === 'mobile') {
+        set({ overlay: get().overlay === 'inspector' ? 'none' : 'inspector' });
+        return;
+      }
+      get().setInspectorCollapsed(!get().inspectorCollapsed);
+    },
+    setOverlay: (v) => set({ overlay: v }),
+    setBreakpoint: (bp) => {
+      const prev = get().breakpoint;
+      if (prev === bp) return;
+      const compact = bp === 'tablet' || bp === 'mobile';
+      set({
+        breakpoint: bp,
+        overlay: compact ? 'none' : get().overlay,
+        scopeFullscreen: compact ? false : get().scopeFullscreen,
+      });
+    },
+    setVizColors: (c) => {
+      const next = { ...get().vizColors, ...c };
+      set({ vizColors: next });
+      persistPrefs({ ...prefsFrom(get()), vizColors: next });
+      applyVizColors(next);
+    },
+    setOnboardingDone: (v) => {
+      set({ onboardingDone: v });
+      persistPrefs({ ...prefsFrom(get()), onboardingDone: v });
+    },
+    toggleFavorite: (type) => {
+      const fav = get().favoriteTypes;
+      const next = fav.includes(type)
+        ? fav.filter((x) => x !== type)
+        : [...fav, type];
+      set({ favoriteTypes: next });
+      persistPrefs({ ...prefsFrom(get()), favoriteTypes: next });
+    },
+    recordRecent: (type) => {
+      const next = [type, ...get().recentTypes.filter((x) => x !== type)].slice(
+        0,
+        8,
+      );
+      set({ recentTypes: next });
+      persistPrefs({ ...prefsFrom(get()), recentTypes: next });
+    },
+    setLegendVisible: (v) => set({ legendVisible: v }),
+    setScopeFullscreen: (v) => set({ scopeFullscreen: v }),
   };
 });
 
@@ -260,6 +399,11 @@ function prefsFrom(s: UiState): Prefs {
     simulationSpeed: s.simulationSpeed,
     currentDirection: s.currentDirection,
     bottomPanelHeight: s.bottomPanelHeight,
+    inspectorCollapsed: s.inspectorCollapsed,
+    vizColors: s.vizColors,
+    onboardingDone: s.onboardingDone,
+    favoriteTypes: s.favoriteTypes,
+    recentTypes: s.recentTypes,
   };
 }
 
@@ -267,9 +411,30 @@ export function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
 
+export function resolveTheme(theme: Theme): ResolvedTheme {
+  if (theme !== 'system') return theme;
+  if (typeof window === 'undefined') return 'dark';
+  return window.matchMedia('(prefers-color-scheme: light)').matches
+    ? 'light'
+    : 'dark';
+}
+
 export function applyTheme(theme: Theme): void {
   if (typeof document === 'undefined') return;
-  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-theme', resolveTheme(theme));
+}
+
+export function applyVizColors(colors: VizColors): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement.style;
+  root.setProperty('--viz-current', colors.current);
+  root.setProperty('--viz-vpos', colors.vpos);
+  root.setProperty('--viz-vneg', colors.vneg);
+  root.setProperty('--viz-ac', colors.ac);
+  root.setProperty('--viz-gnd', colors.ground);
+  root.setProperty('--viz-overload', colors.overload);
+  root.setProperty('--viz-short', colors.short);
+  root.setProperty('--viz-inactive', colors.inactive);
 }
 
 export function applyLocale(locale: Locale): void {

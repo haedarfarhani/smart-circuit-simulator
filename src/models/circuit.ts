@@ -49,7 +49,8 @@ export type ComponentType =
   | 'currentSource'
   | 'acMotor'
   | 'zenerDiode'
-  | 'zener-diode';
+  | 'zener-diode'
+  | 'bjtTransistor';
 
 export type ZenerModelType = 'piecewise-linear' | 'advanced' | 'ideal' | 'custom';
 
@@ -111,6 +112,38 @@ export interface CircuitComponent {
   dynamicThermal?: boolean;
   /** Manufacturer part number / preset identifier */
   preset?: string;
+  /** BJT transistor type: npn or pnp */
+  transistorType?: 'npn' | 'pnp';
+  /** BJT model type: simplified, ebers-moll */
+  modelType?: 'simplified' | 'ebers-moll';
+  /** DC current gain (beta) */
+  beta?: number;
+  /** Base-emitter forward voltage (V) */
+  vbe?: number;
+  /** Saturation voltage (V) */
+  vceSat?: number;
+  /** Leakage current (A) */
+  isLeak?: number;
+  /** Ebers-Moll saturation current IS */
+  is?: number;
+  /** Forward emission coefficient NF */
+  nf?: number;
+  /** Reverse emission coefficient NR */
+  nr?: number;
+  /** Forward Early voltage VA (V) */
+  vaf?: number;
+  /** Reverse Early voltage VAR (V) */
+  var_?: number;
+  /** Ambient temperature (°C) */
+  tAmbient?: number;
+  /** Max junction temperature (°C) */
+  tMax?: number;
+  /** Thermal resistance (°C/W) */
+  rth?: number;
+  /** Thermal capacitance (J/°C) */
+  cth?: number;
+  /** Max power dissipation (W) */
+  pMax?: number;
 }
 
 /** A wire endpoint. When `componentId` is null the end is free (disconnected). */

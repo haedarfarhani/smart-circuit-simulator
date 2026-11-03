@@ -8,6 +8,10 @@ import {
   evaluateZenerStatus,
   type ZenerParameters,
 } from './zenerModel';
+import {
+  calculateEbersMoll,
+  getBjtParameters,
+} from './bjtModel';
 
 /**
  * Instantaneous AC voltage from a real sinusoidal source.
@@ -128,6 +132,8 @@ export interface ComponentInfo {
   thermalCapacitance?: number;
   dynamicThermal?: boolean;
   preset?: string;
+  /** Third node for 3-terminal components (BJT) */
+  nodeC?: string;
 }
 
 const GRID = 10;
@@ -265,10 +271,22 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
     const k1 = nodeKey(t1.x, t1.y);
     const nodeId1 = keyToNode.get(k1);
 
-    const nodeA = nodeId0 ?? '';
-    const nodeB = nodeId1 ?? '';
+    let nodeA = nodeId0 ?? '';
+    let nodeB = nodeId1 ?? '';
+    let nodeC = '';
+
+    // 3-terminal components (BJT)
+    if (comp.type === 'bjtTransistor') {
+      const t2 = terminalWorld(comp, 2);
+      const k2 = nodeKey(t2.x, t2.y);
+      const nodeId2 = keyToNode.get(k2);
+      nodeC = nodeId2 ?? '';
+      // Map terminals: index 0 = Base (B), 1 = Collector (C), 2 = Emitter (E)
+    }
+
     if (nodeA) nodes.get(nodeA)!.connectedComponents.push(comp.id);
     if (nodeB) nodes.get(nodeB)!.connectedComponents.push(comp.id);
+    if (nodeC) nodes.get(nodeC)!.connectedComponents.push(comp.id);
 
     const isVoltageSource = comp.type === 'battery' || comp.type === 'acVoltageSource';
     const isCurrentSource = comp.type === 'currentSource';
@@ -301,6 +319,7 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       thermalCapacitance: comp.thermalCapacitance,
       dynamicThermal: comp.dynamicThermal,
       preset: comp.preset,
+      nodeC: (comp.type === 'bjtTransistor') ? nodeC : undefined,
     });
   }
 
@@ -347,6 +366,7 @@ function solveDC(
   for (const c of components) {
     if (c.nodeA) connectedNodeIds.add(c.nodeA);
     if (c.nodeB) connectedNodeIds.add(c.nodeB);
+    if (c.nodeC) connectedNodeIds.add(c.nodeC);
   }
 
   // Pick an active ground node if existing groundNode has no components
@@ -380,10 +400,12 @@ function solveDC(
       !isOpenAtDC(c.type) &&
       c.type !== 'diode' &&
       c.type !== 'led' &&
+      c.type !== 'bjtTransistor' &&
       !isZenerDiode(c.type),
   );
   const diodes = components.filter((c) => c.type === 'diode' || c.type === 'led');
   const zeners = components.filter((c) => isZenerDiode(c.type));
+  const bjts = components.filter((c) => c.type === 'bjtTransistor');
 
   const numNodes = nodeList.length;
   const numVoltageSources = voltageSources.length;
@@ -508,6 +530,50 @@ function solveDC(
         G[iB][iB] += g;
         if (iA !== undefined) G[iB][iA] -= g;
         I[iB] -= iEq;
+      }
+    }
+
+    // BJTs — nonlinear 3-terminal device. Compute terminal currents and
+    // derivative conductances from the Ebers-Moll model, stamp into G and I.
+    const prevSol = finalSolution ? finalSolution : new Array(matrixSize).fill(0);
+    for (const bjt of bjts) {
+      const iBnode = nodeIndex.get(bjt.nodeA); // Base node index
+      const iCnode = nodeIndex.get(bjt.nodeB); // Collector node index
+      const iEnode = nodeIndex.get(bjt.nodeC ?? '');
+      const hasE = iEnode !== undefined;
+      if (iBnode === undefined && iCnode === undefined && !hasE) continue;
+
+      const params = getBjtParameters(bjt as any);
+      const prevVb = iBnode !== undefined ? prevSol[iBnode] : 0;
+      const prevVc = iCnode !== undefined ? prevSol[iCnode] : 0;
+      const prevVe = hasE ? (prevSol[iEnode] ?? 0) : 0;
+      const vBE = prevVb - prevVe;
+      const vBC = prevVb - prevVc;
+      const vCE = prevVc - prevVe;
+
+      const result = calculateEbersMoll(vBE, vBC, vCE, params, 25);
+
+      const gB = Math.abs(result.gbe) + 1e-9;
+      const gC = Math.abs(result.gbc) + 1e-9;
+      const gEapprox = Math.abs(result.gce) + 1e-9;
+
+      if (iBnode !== undefined) {
+        G[iBnode][iBnode] += gB;
+        if (iCnode !== undefined) G[iBnode][iCnode] -= gB * 0.3;
+        if (hasE && iEnode !== undefined) G[iBnode][iEnode] -= gB * 0.3;
+        I[iBnode] += result.ib;
+      }
+      if (iCnode !== undefined) {
+        G[iCnode][iCnode] += gC;
+        if (iBnode !== undefined) G[iCnode][iBnode] -= gC * 0.3;
+        if (hasE && iEnode !== undefined) G[iCnode][iEnode] -= gC * 0.3;
+        I[iCnode] += result.ic;
+      }
+      if (hasE && iEnode !== undefined) {
+        G[iEnode][iEnode] += gEapprox;
+        if (iBnode !== undefined) G[iEnode][iBnode] -= gEapprox * 0.3;
+        if (iCnode !== undefined) G[iEnode][iCnode] -= gEapprox * 0.3;
+        I[iEnode] += result.ie;
       }
     }
 
@@ -639,6 +705,28 @@ function solveDC(
     } else if (comp.type === 'lamp') {
       const r = resistanceOf(comp);
       current = Number.isFinite(r) && r > 0 ? voltage / r : 0;
+    } else if (comp.type === 'bjtTransistor') {
+      const vB = nodeVoltages.get(comp.nodeA) ?? 0;
+      const vC = nodeVoltages.get(comp.nodeB) ?? 0;
+      const vE = nodeVoltages.get(comp.nodeC ?? '') ?? 0;
+      const vBE = vB - vE;
+      const vBC = vB - vC;
+      const vCE = vC - vE;
+      const params = getBjtParameters(comp as any);
+      const result = calculateEbersMoll(vBE, vBC, vCE, params, 25);
+      const vCE_display = vCE;
+      const ic_display = result.ic;
+      componentData.set(comp.id, {
+        voltage: vCE_display,
+        current: ic_display,
+        power: Math.abs(vCE_display * ic_display),
+        currentDirection: ic_display >= 0 ? 1 : -1,
+        overload: Math.abs(ic_display) > 0.1,
+        junctionTemp: params.tAmbient + Math.abs(vCE_display * ic_display) * params.rth,
+        thermalWarning: (params.tAmbient + Math.abs(vCE_display * ic_display) * params.rth) > (params.tMax ?? 150) * 0.85,
+        dynamicResistance: Math.abs(ic_display) > 1e-6 ? Math.abs(vCE_display / ic_display) * 0.1 : 1e6,
+      });
+      continue;
     } else {
       const r = resistanceOf(comp);
       const g = r > 0 ? 1 / r : 0;
@@ -682,6 +770,7 @@ function computeWireCurrents(
   for (const comp of components) {
     if (comp.nodeA) termNode.set(`${comp.id}:0`, comp.nodeA);
     if (comp.nodeB) termNode.set(`${comp.id}:1`, comp.nodeB);
+    if (comp.nodeC) termNode.set(`${comp.id}:2`, comp.nodeC);
   }
   // Map ground terminal
   for (const comp of doc.components) {

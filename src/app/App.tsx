@@ -4,28 +4,37 @@ import { LibrarySidebar } from '../components/layout/LibrarySidebar';
 import { Inspector } from '../components/layout/Inspector';
 import { StatusBar } from '../components/layout/StatusBar';
 import { BottomPanel } from '../components/layout/BottomPanel';
+import { MobileDock } from '../components/layout/MobileDock';
+import { ColorLegend } from '../components/layout/ColorLegend';
+import { Onboarding } from '../components/layout/Onboarding';
 import { CircuitCanvas } from '../components/canvas/CircuitCanvas';
 import { AboutDialog } from '../components/dialogs/AboutDialog';
 import { TransferDialog } from '../components/dialogs/TransferDialog';
+import { SettingsDialog } from '../components/dialogs/SettingsDialog';
 import { useCircuitStore, persistDoc } from '../store/circuitStore';
 import { applyLocale, applyTheme, useUiStore } from '../store/uiStore';
 import { useKeyboardShortcuts } from '../hooks/useKeyboard';
+import { useBreakpoint, useSystemThemeSync } from '../hooks/useBreakpoint';
 
 export function App() {
   const theme = useUiStore((s) => s.theme);
   const locale = useUiStore((s) => s.locale);
   const dialog = useUiStore((s) => s.dialog);
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
+  const inspectorCollapsed = useUiStore((s) => s.inspectorCollapsed);
+  const overlay = useUiStore((s) => s.overlay);
+  const breakpoint = useUiStore((s) => s.breakpoint);
+  const scopeFullscreen = useUiStore((s) => s.scopeFullscreen);
 
   useKeyboardShortcuts();
+  useBreakpoint();
+  useSystemThemeSync();
 
-  // Apply persisted appearance on mount.
   useEffect(() => {
     applyTheme(theme);
     applyLocale(locale);
   }, [theme, locale]);
 
-  // Autosave the document (debounced) whenever it changes.
   useEffect(() => {
     let lastDoc = useCircuitStore.getState().doc;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -44,20 +53,41 @@ export function App() {
     };
   }, []);
 
+  const compact = breakpoint === 'tablet' || breakpoint === 'mobile';
+
   return (
-    <div className="app">
+    <div
+      className="app"
+      data-sidebar-collapsed={sidebarCollapsed}
+      data-inspector-collapsed={inspectorCollapsed || compact}
+      data-bp={breakpoint}
+      data-overlay={overlay}
+      data-scope-full={scopeFullscreen}
+    >
       <MenuBar />
-      <div className="app-main" data-sidebar-collapsed={sidebarCollapsed}>
+      <div className="app-main">
         <LibrarySidebar />
         <div className="canvas-container">
           <CircuitCanvas />
+          <ColorLegend />
           <BottomPanel />
         </div>
         <Inspector />
       </div>
+      {compact && overlay !== 'none' && (
+        <button
+          type="button"
+          className="sheet-backdrop"
+          aria-label="Close panel"
+          onClick={() => useUiStore.getState().setOverlay('none')}
+        />
+      )}
       <StatusBar />
+      <MobileDock />
 
+      <Onboarding />
       {dialog === 'about' && <AboutDialog />}
+      {dialog === 'settings' && <SettingsDialog />}
       {(dialog === 'transfer-import' || dialog === 'transfer-export') && (
         <TransferDialog mode={dialog === 'transfer-import' ? 'import' : 'export'} />
       )}

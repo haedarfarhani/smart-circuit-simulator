@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Interactive Circuit Lab — design and learn electrical circuits in the browser." />
-    <title>Interactive Circuit Lab</title>
+    <meta name="description" content="Smart Circuit Simulator — professional electronics lab in the browser." />
+    <title>Smart Circuit Simulator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -15,9 +15,32 @@
       // Apply persisted theme before first paint to avoid a flash.
       try {
         var prefs = JSON.parse(localStorage.getItem('circuit-lab:prefs') || '{}');
-        var theme = prefs.theme || 'dark';
-        document.documentElement.setAttribute('data-theme', theme);
-        if (prefs.locale === 'fa') document.documentElement.setAttribute('dir', 'rtl');
+        var pref = prefs.theme || 'dark';
+        var theme = pref;
+        if (pref === 'system') {
+          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+        if (prefs.locale === 'fa') {
+          document.documentElement.setAttribute('dir', 'rtl');
+          document.documentElement.setAttribute('lang', 'fa');
+        }
+        var viz = prefs.vizColors;
+        if (viz) {
+          var map = {
+            current: '--viz-current',
+            vpos: '--viz-vpos',
+            vneg: '--viz-vneg',
+            ac: '--viz-ac',
+            ground: '--viz-gnd',
+            overload: '--viz-overload',
+            short: '--viz-short',
+            inactive: '--viz-inactive'
+          };
+          Object.keys(map).forEach(function (k) {
+            if (viz[k]) document.documentElement.style.setProperty(map[k], viz[k]);
+          });
+        }
       } catch (e) {}
     </script>
   </head>

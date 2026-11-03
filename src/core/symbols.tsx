@@ -415,6 +415,33 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
       </>
     ),
   },
+  bjtTransistor: {
+    type: 'bjtTransistor',
+    prefix: 'Q',
+    category: 'passive',
+    defaultValue: 200,
+    unit: 'β',
+    w: 100,
+    h: 100,
+    terminals: [
+      { x: -LEAD_LEN, y: 0, dx: -1, dy: 0 },
+      { x: 0, y: -LEAD_LEN, dx: 0, dy: -1 },
+      { x: LEAD_LEN, y: 10, dx: 1, dy: 0 },
+    ],
+    body: (
+      <>
+        <line className="sym-line" x1={-LEAD_LEN} y1={0} x2={-20} y2={0} />
+        <line className="sym-line" x1={0} y1={-LEAD_LEN} x2={0} y2={-20} />
+        <line className="sym-line" x1={20} y1={10} x2={LEAD_LEN} y2={10} />
+        <line className="sym-line" x1={-20} y1={-15} x2={-20} y2={15} />
+        <line className="sym-line" x1={-20} y1={-15} x2={0} y2={-15} />
+        <line className="sym-line" x1={-20} y1={15} x2={10} y2={15} />
+        <polygon points="15,5 25,10 15,15" className="sym-fill" fill="currentColor" />
+        <line className="sym-line" x1={-20} y1={0} x2={-25} y2={0} />
+        <circle className="sym-fill" cx={-20} cy={0} r={3.5} />
+      </>
+    ),
+  },
 };
 
 /**

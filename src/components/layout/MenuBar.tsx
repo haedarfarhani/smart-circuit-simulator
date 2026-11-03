@@ -17,27 +17,16 @@ function BrandLogo() {
   return (
     <div className="brand-logo-wrap">
       <svg className="brand-logo" viewBox="0 0 24 24" aria-hidden="true">
-        <defs>
-          <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#38bdf8" />
-            <stop offset="50%" stopColor="#818cf8" />
-            <stop offset="100%" stopColor="#c084fc" />
-          </linearGradient>
-          <filter id="glowEffect" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="2" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-        </defs>
         <path
-          d="M3 12h4l2-5 3 10 2.5-7 1.5 2h5"
+          d="M4 12h3l2-6 3 12 2-6h6"
           fill="none"
-          stroke="url(#brandGrad)"
-          strokeWidth="2.4"
+          stroke="currentColor"
+          strokeWidth="2.2"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <circle cx="9" cy="7" r="1.5" fill="#38bdf8" />
-        <circle cx="12" cy="17" r="1.5" fill="#818cf8" />
+        <circle cx="9" cy="6" r="1.4" fill="currentColor" />
+        <circle cx="14" cy="18" r="1.4" fill="currentColor" />
       </svg>
     </div>
   );
