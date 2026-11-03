@@ -1,0 +1,6 @@
+{
+  "name": "Interactive Circuit Lab",
+  "description": "Design and simulate interactive electrical and electronic circuits in real time with probes, scopes, and circuit analysis.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

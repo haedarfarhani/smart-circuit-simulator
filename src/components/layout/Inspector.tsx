@@ -9,6 +9,13 @@ import { AnalyzerPanel } from '../panels/AnalyzerPanel';
 import { LearningPanel } from '../panels/LearningPanel';
 import { PracticePanel } from '../panels/PracticePanel';
 import { EXAMPLE_CIRCUITS, getExample } from '../../core/examples';
+import {
+  isZenerDiode,
+  getZenerParameters,
+  ZENER_PRESETS,
+  applyZenerPreset,
+} from '../../core/zenerModel';
+import { ZenerAnalyzer } from '../panels/ZenerAnalyzer';
 
 function Field({
   label,
@@ -181,10 +188,44 @@ export function Inspector() {
                           </span>
                         </div>
                       )}
+                      {isZenerDiode(comp.type) && (
+                        <>
+                          <div className="telemetry-item rz">
+                            <span className="telemetry-k">{t('zener.rzEffective') || 'rz'}</span>
+                            <span className="telemetry-v">
+                              {(compSolution.dynamicResistance ?? comp.zenerResistance ?? 10).toFixed(1)} Ω
+                            </span>
+                          </div>
+                          {(compSolution.junctionTemp !== undefined || comp.dynamicThermal) && (
+                            <div className="telemetry-item temp">
+                              <span className="telemetry-k">{t('zener.junctionTemp') || 'Tj'}</span>
+                              <span className="telemetry-v">
+                                {(compSolution.junctionTemp ?? 25).toFixed(1)} °C
+                              </span>
+                            </div>
+                          )}
+                          {compSolution.effectiveVz !== undefined && (
+                            <div className="telemetry-item effvz">
+                              <span className="telemetry-k">{t('zener.effectiveVz') || 'Vz(Tj)'}</span>
+                              <span className="telemetry-v">
+                                {compSolution.effectiveVz.toFixed(2)} V
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
                       <div className="telemetry-item state">
                         <span className="telemetry-k">{t('inspector.state')}</span>
                         <span className="telemetry-v">
-                          {comp.type === 'switch'
+                          {isZenerDiode(comp.type)
+                            ? compSolution.overload
+                              ? 'OVERLOAD'
+                              : compSolution.zenerState === 'breakdown'
+                              ? 'Breakdown'
+                              : compSolution.zenerState === 'forward'
+                              ? 'Forward'
+                              : 'Blocking'
+                            : comp.type === 'switch'
                             ? comp.value === 1
                               ? 'Closed'
                               : 'Open'
@@ -194,6 +235,26 @@ export function Inspector() {
                         </span>
                       </div>
                     </div>
+                    {isZenerDiode(comp.type) && (
+                      <div className="zener-power-bar-wrap" style={{ marginTop: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
+                          <span>{t('zener.dissipation') || 'Power Dissipation'}</span>
+                          <span style={{ fontWeight: 600, color: compSolution.overload ? '#ef4444' : (compSolution.powerRatio ?? 0) > 0.8 ? '#f59e0b' : '#10b981' }}>
+                            {((compSolution.powerRatio ?? 0) * 100).toFixed(0)}% ({compSolution.power.toFixed(3)}W / {(comp.ratedPower ?? 1).toFixed(1)}W)
+                          </span>
+                        </div>
+                        <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden', marginTop: '3px' }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${Math.min(100, (compSolution.powerRatio ?? 0) * 100)}%`,
+                              background: compSolution.overload ? '#ef4444' : (compSolution.powerRatio ?? 0) > 0.8 ? '#f59e0b' : '#06b6d4',
+                              transition: 'width 0.15s ease',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -220,7 +281,11 @@ export function Inspector() {
                       onChange={(e) => {
                         const v = parseFloat(e.target.value);
                         if (Number.isFinite(v)) {
-                          store.updateComponents([comp.id], { value: v });
+                          if (isZenerDiode(comp.type)) {
+                            store.updateComponents([comp.id], { value: v, zenerVoltage: v, preset: 'custom' });
+                          } else {
+                            store.updateComponents([comp.id], { value: v });
+                          }
                         }
                       }}
                     />
@@ -265,6 +330,207 @@ export function Inspector() {
                       ))}
                     </div>
                   </Field>
+                )}
+
+                {/* Zener Diode Parameters, Presets, Thermal & Embedded Analyzer */}
+                {isZenerDiode(comp.type) && (
+                  <div className="zener-inspector-section" style={{ marginTop: '10px' }}>
+                    <Field label={t('zener.preset') || 'Manufacturer Preset'}>
+                      <select
+                        value={comp.preset || '1N4733A'}
+                        onChange={(e) => {
+                          const key = e.target.value;
+                          if (key !== 'custom' && ZENER_PRESETS[key]) {
+                            store.updateComponents([comp.id], applyZenerPreset(key));
+                          } else {
+                            store.updateComponents([comp.id], { preset: 'custom' });
+                          }
+                        }}
+                      >
+                        <option value="custom">Custom Parameters</option>
+                        {Object.entries(ZENER_PRESETS).map(([k, p]) => (
+                          <option key={k} value={k}>
+                            {p.name} — {p.vz}V
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field label={t('zener.modelType') || 'Semiconductor Model'}>
+                      <select
+                        value={comp.zenerModel || 'piecewise-linear'}
+                        onChange={(e) => {
+                          store.updateComponents([comp.id], {
+                            zenerModel: e.target.value as any,
+                          });
+                        }}
+                      >
+                        <option value="piecewise-linear">Piecewise-Linear (Fast & Accurate Knee)</option>
+                        <option value="advanced">Advanced Shockley + Avalanche Breakdown</option>
+                      </select>
+                    </Field>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                      <Field label={`${t('zener.dynamicResistance') || 'rz'} (Ω)`}>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0.1"
+                          value={comp.zenerResistance ?? 7}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && v > 0) {
+                              store.updateComponents([comp.id], { zenerResistance: v, preset: 'custom' });
+                            }
+                          }}
+                        />
+                      </Field>
+                      <Field label={`${t('zener.ratedPower') || 'Pmax'} (W)`}>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.05"
+                          value={comp.ratedPower ?? 1.0}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && v > 0) {
+                              store.updateComponents([comp.id], { ratedPower: v, preset: 'custom' });
+                            }
+                          }}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                      <Field label={`${t('zener.testCurrent') || 'Izt'} (mA)`}>
+                        <input
+                          type="number"
+                          step="1"
+                          min="0.1"
+                          value={((comp.zenerTestCurrent ?? 0.049) * 1000).toFixed(1)}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && v > 0) {
+                              store.updateComponents([comp.id], { zenerTestCurrent: v / 1000, preset: 'custom' });
+                            }
+                          }}
+                        />
+                      </Field>
+                      <Field label={`${t('zener.kneeCurrent') || 'Izk'} (mA)`}>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.01"
+                          value={((comp.zenerKneeCurrent ?? 0.001) * 1000).toFixed(2)}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && v > 0) {
+                              store.updateComponents([comp.id], { zenerKneeCurrent: v / 1000, preset: 'custom' });
+                            }
+                          }}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                      <Field label={`${t('zener.forwardVoltage') || 'Vf'} (V)`}>
+                        <input
+                          type="number"
+                          step="0.05"
+                          min="0.2"
+                          max="2.0"
+                          value={comp.forwardVoltage ?? 0.75}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && v > 0) {
+                              store.updateComponents([comp.id], { forwardVoltage: v, preset: 'custom' });
+                            }
+                          }}
+                        />
+                      </Field>
+                      <Field label={`${t('zener.leakage') || 'Ileak'} (µA)`}>
+                        <input
+                          type="number"
+                          step="1"
+                          min="0.01"
+                          value={((comp.reverseLeakage ?? 1e-5) * 1e6).toFixed(1)}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (Number.isFinite(v) && v >= 0) {
+                              store.updateComponents([comp.id], { reverseLeakage: v * 1e-6, preset: 'custom' });
+                            }
+                          }}
+                        />
+                      </Field>
+                    </div>
+
+                    {/* Thermal Simulation Settings */}
+                    <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={comp.dynamicThermal ?? false}
+                            onChange={(e) => {
+                              store.updateComponents([comp.id], { dynamicThermal: e.target.checked });
+                            }}
+                          />
+                          <span>{t('zener.dynamicThermal') || 'Dynamic Thermal Model'}</span>
+                        </label>
+                      </div>
+
+                      {comp.dynamicThermal && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                          <Field label={`${t('zener.tempCoeff') || 'α'} (mV/°C)`}>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={comp.tempCoeff ?? 1.2}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (Number.isFinite(v)) {
+                                  store.updateComponents([comp.id], { tempCoeff: v, preset: 'custom' });
+                                }
+                              }}
+                            />
+                          </Field>
+                          <Field label={`${t('zener.thermalResistance') || 'Rth'} (°C/W)`}>
+                            <input
+                              type="number"
+                              step="10"
+                              min="1"
+                              value={comp.thermalResistance ?? 100}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (Number.isFinite(v) && v > 0) {
+                                  store.updateComponents([comp.id], { thermalResistance: v, preset: 'custom' });
+                                }
+                              }}
+                            />
+                          </Field>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Embedded I-V Analyzer */}
+                    <div style={{ marginTop: '12px' }}>
+                      <ZenerAnalyzer
+                        params={getZenerParameters(comp)}
+                        tj={compSolution?.junctionTemp ?? comp.ambientTemp ?? 25}
+                        currentOperatingPoint={compSolution ? {
+                          voltage: compSolution.voltage,
+                          current: compSolution.current,
+                          state: compSolution.zenerState === 'blocking'
+                            ? 'reverse-blocking'
+                            : compSolution.zenerState === 'forward' || compSolution.zenerState === 'breakdown'
+                            ? compSolution.zenerState
+                            : undefined,
+                          dynamicResistance: compSolution.dynamicResistance,
+                        } : undefined}
+                        t={t}
+                      />
+                    </div>
+                  </div>
                 )}
 
                 {/* AC Source & AC Motor Frequency */}

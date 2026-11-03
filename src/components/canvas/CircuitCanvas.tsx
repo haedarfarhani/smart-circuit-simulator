@@ -16,6 +16,7 @@ import {
   useUiStore,
 } from '../../store/uiStore';
 import { SYMBOLS, switchLever, RESISTOR_BODY } from '../../core/symbols';
+import { isZenerDiode } from '../../core/zenerModel';
 import { componentBounds, terminalWorld } from '../../core/geometry';
 import { lampBrightness, lampLoad } from '../../core/flow';
 import { synchronousSpeedRpm } from '../../core/acSolver';
@@ -294,6 +295,106 @@ function ComponentView({
                 points="-14,-14 14,0 -14,14"
                 fill="var(--danger)"
                 opacity={0.4}
+              />
+            ) : null}
+          </g>
+        )}
+
+        {/* 9.1 Zener Diode Conduction, Breakdown & Thermal Aura */}
+        {isZenerDiode(c.type) && simulationEnabled && compSolution && (
+          <g className="zener-dynamic-state">
+            {/* Thermal / Heat Halo if dissipating significant power */}
+            {(compSolution.powerRatio ?? 0) > 0.4 && (
+              <circle
+                cx={0}
+                cy={0}
+                r={24}
+                fill="none"
+                stroke={compSolution.thermalWarning ? '#ef4444' : '#f97316'}
+                strokeWidth={2}
+                strokeDasharray="3 3"
+                opacity={Math.min(0.9, 0.3 + (compSolution.powerRatio ?? 0) * 0.6)}
+                style={{
+                  filter: `drop-shadow(0 0 6px ${compSolution.thermalWarning ? '#ef4444' : '#f97316'})`,
+                }}
+              />
+            )}
+
+            {/* Overload pulse ring */}
+            {compSolution.overload && (
+              <circle
+                cx={0}
+                cy={0}
+                r={28}
+                fill="none"
+                stroke="#ef4444"
+                strokeWidth={2.4}
+                opacity={0.8}
+                style={{
+                  animation: 'pulse 1s ease-in-out infinite',
+                  filter: 'drop-shadow(0 0 8px #ef4444)',
+                }}
+              />
+            )}
+
+            {compSolution.zenerState === 'breakdown' ||
+            (compSolution.voltage < -(c.zenerVoltage ?? 5.1) * 0.95 &&
+              compSolution.current < -1e-4) ? (
+              // Reverse breakdown regulation: intense electric cyan/blue breakdown glow
+              <>
+                {/* Radiant breakdown field */}
+                <ellipse
+                  cx={8}
+                  cy={0}
+                  rx={16}
+                  ry={18}
+                  fill="rgba(6, 182, 212, 0.22)"
+                  opacity={Math.min(1, 0.4 + Math.abs(compSolution.current) * 20)}
+                  style={{ filter: 'drop-shadow(0 0 8px #06b6d4)' }}
+                />
+                {/* Glowing hooked Z-cathode bar */}
+                <path
+                  d="M 8 -14 L 14 -14 L 14 14 L 20 14"
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth={3.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ filter: 'drop-shadow(0 0 6px #38bdf8)' }}
+                />
+                {/* Semiconductor core breakdown glow */}
+                <polygon
+                  points="-14,-14 14,0 -14,14"
+                  fill="#0284c7"
+                  opacity={0.55}
+                  style={{ filter: 'drop-shadow(0 0 6px #0ea5e9)' }}
+                />
+              </>
+            ) : compSolution.current > 1e-4 ? (
+              // Forward conduction: green glow
+              <>
+                <polygon
+                  points="-14,-14 14,0 -14,14"
+                  fill="var(--ok)"
+                  opacity={0.85}
+                  style={{ filter: 'drop-shadow(0 0 6px var(--ok-glow))' }}
+                />
+                <path
+                  d="M 8 -14 L 14 -14 L 14 14 L 20 14"
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeWidth={2.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ filter: 'drop-shadow(0 0 4px var(--ok))' }}
+                />
+              </>
+            ) : compSolution.voltage < -0.2 ? (
+              // Reverse blocking (sub-breakdown) indicator
+              <polygon
+                points="-14,-14 14,0 -14,14"
+                fill="#64748b"
+                opacity={0.35}
               />
             ) : null}
           </g>

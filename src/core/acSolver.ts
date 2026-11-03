@@ -125,6 +125,16 @@ function admittanceOf(comp: ComponentInfo, omega: number, supplyVoltage: number)
     case 'acMotor':
       return cx(1 / (comp.value > 0 ? comp.value : 15));
 
+    case 'diode':
+    case 'led':
+      return cx(1e-7);
+
+    case 'zenerDiode':
+    case 'zener-diode': {
+      const rz = comp.zenerResistance && comp.zenerResistance > 0 ? comp.zenerResistance : 7;
+      return cx(1 / rz);
+    }
+
     default:
       // Resistors, switches and anything else that is an ideal resistance.
       // A component whose value is 0 has no defined impedance; the DC path

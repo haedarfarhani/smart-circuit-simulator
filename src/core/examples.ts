@@ -16,6 +16,12 @@ function makeDoc(
     frequency?: number;
     forwardVoltage?: number;
     color?: import('../models/circuit').LedColor;
+    preset?: string;
+    zenerVoltage?: number;
+    zenerResistance?: number;
+    ratedPower?: number;
+    dynamicThermal?: boolean;
+    tempCoeff?: number;
   }[],
   wires: { from: WireEndpoint; to: WireEndpoint; waypoints?: Point[] }[],
 ): CircuitDoc {
@@ -34,6 +40,12 @@ function makeDoc(
     if (c.forwardVoltage !== undefined)
       comp.forwardVoltage = c.forwardVoltage;
     if (c.color !== undefined) comp.color = c.color;
+    if (c.preset !== undefined) comp.preset = c.preset;
+    if (c.zenerVoltage !== undefined) comp.zenerVoltage = c.zenerVoltage;
+    if (c.zenerResistance !== undefined) comp.zenerResistance = c.zenerResistance;
+    if (c.ratedPower !== undefined) comp.ratedPower = c.ratedPower;
+    if (c.dynamicThermal !== undefined) comp.dynamicThermal = c.dynamicThermal;
+    if (c.tempCoeff !== undefined) comp.tempCoeff = c.tempCoeff;
     return comp;
   });
 
@@ -146,6 +158,194 @@ export const EXAMPLE_CIRCUITS: ExampleCircuit[] = [
         { from: term('V1', 0), to: term('SOL1', 0), waypoints: [] },
         { from: term('M1', 1), to: term('SOL1', 1), waypoints: [] },
         { from: term('SOL1', 1), to: term('V1', 1), waypoints: [] },
+        { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-regulator-basic',
+    nameKey: 'example.zenerBasic.name',
+    descKey: 'example.zenerBasic.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'battery', value: 12, label: 'V1' },
+        { x: 18, y: 8, type: 'resistor', value: 220, label: 'R1' },
+        { x: 28, y: 14, type: 'zenerDiode', value: 5.1, label: 'DZ1', rotation: 90, preset: '1N4733A' },
+        { x: 38, y: 14, type: 'resistor', value: 1000, label: 'RL', rotation: 90 },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('V1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('RL', 1), waypoints: [] },
+        { from: term('RL', 0), to: term('DZ1', 0), waypoints: [] },
+        { from: term('DZ1', 0), to: term('V1', 1), waypoints: [] },
+        { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-line-regulation',
+    nameKey: 'example.zenerLineReg.name',
+    descKey: 'example.zenerLineReg.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'battery', value: 18, label: 'V1' },
+        { x: 18, y: 8, type: 'resistor', value: 330, label: 'R1' },
+        { x: 28, y: 14, type: 'zenerDiode', value: 5.1, label: 'DZ1', rotation: 90, preset: '1N4733A' },
+        { x: 38, y: 14, type: 'resistor', value: 470, label: 'RL', rotation: 90 },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('V1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('RL', 1), waypoints: [] },
+        { from: term('RL', 0), to: term('DZ1', 0), waypoints: [] },
+        { from: term('DZ1', 0), to: term('V1', 1), waypoints: [] },
+        { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-load-regulation',
+    nameKey: 'example.zenerLoadReg.name',
+    descKey: 'example.zenerLoadReg.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'battery', value: 12, label: 'V1' },
+        { x: 16, y: 8, type: 'resistor', value: 150, label: 'R1' },
+        { x: 26, y: 14, type: 'zenerDiode', value: 5.6, label: 'DZ1', rotation: 90, preset: '1N4734A' },
+        { x: 34, y: 14, type: 'resistor', value: 500, label: 'RL1', rotation: 90 },
+        { x: 42, y: 8, type: 'switch', value: 1, label: 'SW1' },
+        { x: 48, y: 14, type: 'resistor', value: 500, label: 'RL2', rotation: 90 },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('V1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('RL1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('SW1', 0), waypoints: [] },
+        { from: term('SW1', 1), to: term('RL2', 1), waypoints: [] },
+        { from: term('RL2', 0), to: term('RL1', 0), waypoints: [] },
+        { from: term('RL1', 0), to: term('DZ1', 0), waypoints: [] },
+        { from: term('DZ1', 0), to: term('V1', 1), waypoints: [] },
+        { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-overvoltage-protection',
+    nameKey: 'example.zenerProtection.name',
+    descKey: 'example.zenerProtection.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'battery', value: 15, label: 'V1' },
+        { x: 16, y: 8, type: 'resistor', value: 100, label: 'R1' },
+        { x: 26, y: 14, type: 'zenerDiode', value: 5.1, label: 'DZ1', rotation: 90, preset: '1N4733A' },
+        { x: 34, y: 12, type: 'led', value: 2, label: 'LED1', rotation: 90, color: 'green', forwardVoltage: 2 },
+        { x: 34, y: 20, type: 'resistor', value: 470, label: 'R2', rotation: 90 },
+        { x: 44, y: 14, type: 'resistor', value: 2200, label: 'RL', rotation: 90 },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('V1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('LED1', 1), waypoints: [] },
+        { from: term('LED1', 0), to: term('R2', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('RL', 1), waypoints: [] },
+        { from: term('RL', 0), to: term('R2', 0), waypoints: [] },
+        { from: term('R2', 0), to: term('DZ1', 0), waypoints: [] },
+        { from: term('DZ1', 0), to: term('V1', 1), waypoints: [] },
+        { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-ac-clipper',
+    nameKey: 'example.zenerAcClipper.name',
+    descKey: 'example.zenerAcClipper.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'acVoltageSource', value: 10, label: 'VAC1', frequency: 50 },
+        { x: 18, y: 8, type: 'resistor', value: 1000, label: 'R1' },
+        { x: 28, y: 14, type: 'zenerDiode', value: 5.1, label: 'DZ1', rotation: 90, preset: '1N4733A' },
+        { x: 38, y: 14, type: 'resistor', value: 10000, label: 'RL', rotation: 90 },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('VAC1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('RL', 1), waypoints: [] },
+        { from: term('RL', 0), to: term('DZ1', 0), waypoints: [] },
+        { from: term('DZ1', 0), to: term('VAC1', 1), waypoints: [] },
+        { from: term('VAC1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-bidirectional-clipper',
+    nameKey: 'example.zenerDoubleClipper.name',
+    descKey: 'example.zenerDoubleClipper.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 16, type: 'acVoltageSource', value: 12, label: 'VAC1', frequency: 50 },
+        { x: 18, y: 8, type: 'resistor', value: 1000, label: 'R1' },
+        { x: 28, y: 12, type: 'zenerDiode', value: 6.2, label: 'DZ1', rotation: 90, preset: '1N4735A' },
+        { x: 28, y: 20, type: 'zenerDiode', value: 6.2, label: 'DZ2', rotation: 270, preset: '1N4735A' },
+        { x: 38, y: 16, type: 'resistor', value: 20000, label: 'RL', rotation: 90 },
+        { x: 6, y: 26, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('VAC1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 0), to: term('DZ2', 0), waypoints: [] },
+        { from: term('DZ2', 1), to: term('VAC1', 1), waypoints: [] },
+        { from: term('R1', 1), to: term('RL', 1), waypoints: [] },
+        { from: term('RL', 0), to: term('DZ2', 1), waypoints: [] },
+        { from: term('VAC1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-voltage-reference',
+    nameKey: 'example.zenerRef.name',
+    descKey: 'example.zenerRef.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'battery', value: 24, label: 'V1' },
+        { x: 18, y: 8, type: 'resistor', value: 680, label: 'R1' },
+        { x: 28, y: 14, type: 'zenerDiode', value: 10, label: 'DZ1', rotation: 90, preset: '1N4740A' },
+        { x: 36, y: 14, type: 'capacitor', value: 0.00001, label: 'C1', rotation: 90 },
+        { x: 44, y: 14, type: 'resistor', value: 10000, label: 'RL', rotation: 90 },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('V1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 1), to: term('C1', 1), waypoints: [] },
+        { from: term('C1', 1), to: term('RL', 1), waypoints: [] },
+        { from: term('RL', 0), to: term('C1', 0), waypoints: [] },
+        { from: term('C1', 0), to: term('DZ1', 0), waypoints: [] },
+        { from: term('DZ1', 0), to: term('V1', 1), waypoints: [] },
+        { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
+      ],
+    ),
+  },
+  {
+    id: 'zener-test-bench',
+    nameKey: 'example.zenerTestBench.name',
+    descKey: 'example.zenerTestBench.desc',
+    doc: makeDoc(
+      [
+        { x: 6, y: 14, type: 'battery', value: 15, label: 'V1' },
+        { x: 18, y: 8, type: 'resistor', value: 100, label: 'R1' },
+        { x: 28, y: 14, type: 'zenerDiode', value: 5.1, label: 'DZ1', rotation: 90, preset: '1N4733A', dynamicThermal: true },
+        { x: 6, y: 22, type: 'ground', value: 0, label: 'GND' },
+      ],
+      [
+        { from: term('V1', 0), to: term('R1', 0), waypoints: [] },
+        { from: term('R1', 1), to: term('DZ1', 1), waypoints: [] },
+        { from: term('DZ1', 0), to: term('V1', 1), waypoints: [] },
         { from: term('V1', 1), to: term('GND', 0), waypoints: [] },
       ],
     ),

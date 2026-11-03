@@ -297,6 +297,77 @@ const learningTopics: LearningTopic[] = [
       
       return steps;
     }
+  },
+  {
+    title: 'Zener Diode Voltage Regulation',
+    formula: 'V_L ≈ V_Z,  I_S = I_Z + I_L,  P_Z = V_Z · I_Z',
+    explanation: 'A Zener diode is engineered to operate safely in reverse breakdown. Once reverse voltage reaches V_Z, the diode conducts reverse current with very low dynamic resistance (r_z), clamping the output voltage constant despite variations in line supply or load current.',
+    applicable: (doc, _topology, solver) => {
+      if (!solver || !solver.isValid) return false;
+      return doc.components.some(c => c.type === 'zenerDiode' || c.type === 'zener-diode');
+    },
+    generate: (doc, _topology, solver) => {
+      const steps: LearningStep[] = [];
+      const zeners = doc.components.filter(c => c.type === 'zenerDiode' || c.type === 'zener-diode');
+      const battery = doc.components.find(c => c.type === 'battery' || c.type === 'acVoltageSource');
+      const resistors = doc.components.filter(c => c.type === 'resistor');
+
+      for (const zener of zeners) {
+        const sol = solver?.componentData.get(zener.id);
+        if (!sol) continue;
+
+        const vz = zener.value || zener.zenerVoltage || 5.1;
+        const vd = sol.voltage;
+        const id = sol.current;
+        const power = sol.power;
+        const state = sol.zenerState || (vd <= -vz + 0.1 && id < -1e-4 ? 'breakdown' : vd >= 0.6 ? 'forward' : 'blocking');
+
+        steps.push({
+          title: `Operating Region of ${zener.label}`,
+          formula: 'V_D = V_A - V_K',
+          explanation: state === 'breakdown'
+            ? `${zener.label} is in REVERSE BREAKDOWN REGULATION. Terminal voltage V_D is clamped near -${vz.toFixed(2)}V, conducting reverse current from Cathode to Anode.`
+            : state === 'forward'
+            ? `${zener.label} is in FORWARD CONDUCTION, behaving like a standard silicon diode with ~0.7V forward drop.`
+            : `${zener.label} is in REVERSE BLOCKING (sub-breakdown), passing only tiny leakage current.`,
+          values: `Nominal V_Z: ${vz.toFixed(2)} V\nMeasured V_D: ${vd.toFixed(3)} V\nCurrent I_D: ${(id * 1000).toFixed(2)} mA\nOperating Mode: ${state.toUpperCase()}`,
+          result: state === 'breakdown'
+            ? `Output voltage clamped at ≈ ${Math.abs(vd).toFixed(2)} V`
+            : `Diode current: ${(id * 1000).toFixed(2)} mA`,
+          highlightedComponents: [zener.id],
+        });
+
+        // Series limiting resistor analysis
+        if (battery && resistors.length > 0) {
+          const batSol = solver?.componentData.get(battery.id);
+          const vin = Math.abs(battery.value);
+          steps.push({
+            title: `Series Resistor & Current Sharing (KCL)`,
+            formula: 'I_S = (V_in - V_Z) / R_S,   I_S = I_Z + I_L',
+            explanation: `The series resistor drops the difference between the unregulated supply (V_in = ${vin}V) and the regulated Zener voltage (${vz}V), limiting current to prevent overheating.`,
+            values: `Supply V_in: ${vin.toFixed(1)} V\nZener V_Z: ${vz.toFixed(1)} V\nVoltage Drop across R_S: ${(vin - vz).toFixed(2)} V`,
+            result: `Zener Current: ${Math.abs(id * 1000).toFixed(1)} mA` + (batSol ? ` | Total Source Current: ${Math.abs(batSol.current * 1000).toFixed(1)} mA` : ''),
+            highlightedComponents: [battery.id, zener.id],
+          });
+        }
+
+        // Power dissipation & safety margin
+        const pmax = zener.ratedPower || 1.0;
+        const pRatio = power / pmax;
+        steps.push({
+          title: `Power Dissipation & Thermal Safety`,
+          formula: 'P_Z = |V_D · I_D|  ≤  P_max',
+          explanation: `All energy absorbed by the Zener in breakdown turns into Joule heating: P_Z = V_Z · I_Z. The component must operate within its maximum rated power (P_max = ${pmax}W) to avoid thermal destruction.`,
+          values: `V_Z: ${Math.abs(vd).toFixed(2)} V\nI_Z: ${Math.abs(id * 1000).toFixed(2)} mA\nP_Z: ${(power * 1000).toFixed(1)} mW\nRated P_max: ${(pmax * 1000).toFixed(0)} mW`,
+          result: pRatio > 1.0
+            ? `⚠️ OVERLOAD! Dissipation is ${(pRatio * 100).toFixed(0)}% of rating!`
+            : `Safe operation: ${(pRatio * 100).toFixed(1)}% of maximum power margin.` + (sol.junctionTemp ? ` (T_j ≈ ${sol.junctionTemp.toFixed(1)}°C)` : ''),
+          highlightedComponents: [zener.id],
+        });
+      }
+
+      return steps;
+    }
   }
 ];
 

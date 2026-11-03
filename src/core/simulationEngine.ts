@@ -28,6 +28,15 @@ import {
   isOpenAtDC,
   acInstantaneous,
 } from './solver';
+import {
+  isZenerDiode,
+  getZenerParameters,
+  getZenerLinearizedModel,
+  calculateZenerCurrent,
+  evaluateZenerStatus,
+  stepZenerThermal,
+  type ZenerParameters,
+} from './zenerModel';
 
 // ---------------------------------------------------------------------------
 // Simulation clock + configuration
@@ -64,6 +73,7 @@ export interface SimulationState {
   // Energy-storage state, indexed by component id
   capacitorVoltage: Map<string, number>; // Vc at terminal A relative to B
   inductorCurrent: Map<string, number>;  // I through the inductor
+  zenerJunctionTemp?: Map<string, number>; // Tj for each Zener diode
   // Running totals for the simulation clock
   simTime: number;
   status: 'stopped' | 'running' | 'paused';
@@ -83,6 +93,14 @@ export interface SimulationState {
 export interface DiodeState {
   conducting: boolean;
   vDrop: number;
+}
+
+/** Zener diode operating point used by the instantaneous network model. */
+export interface ZenerDiodeState {
+  params: ZenerParameters;
+  region: 'forward' | 'blocking' | 'breakdown';
+  vd: number;
+  tj: number;
 }
 
 /** On-resistance of a conducting diode/LED in the PWL model (Ω). */
@@ -176,6 +194,7 @@ export function buildInstantaneousNetwork(
   state: SimulationState,
   dt: number,
   diodeStates: Map<string, DiodeState>,
+  zenerStates?: Map<string, ZenerDiodeState>,
 ): InstantaneousNetwork {
   const { nodes, components: topoComps, groundNode } = topology;
 
@@ -224,6 +243,7 @@ export function buildInstantaneousNetwork(
 
   const comps = topoComps;
   const diodes = comps.filter((c) => c.type === 'diode' || c.type === 'led');
+  const zeners = comps.filter((c) => isZenerDiode(c.type));
   const caps = comps.filter((c) => c.type === 'capacitor');
   const inds = comps.filter(
     (c) => c.type === 'solenoid' || c.type === 'dcMotor',
@@ -237,6 +257,7 @@ export function buildInstantaneousNetwork(
       !isOpenAtDC(c.type) &&
       c.type !== 'diode' &&
       c.type !== 'led' &&
+      !isZenerDiode(c.type) &&
       c.type !== 'capacitor' &&
       c.type !== 'solenoid' &&
       c.type !== 'dcMotor',
@@ -355,6 +376,29 @@ export function buildInstantaneousNetwork(
     }
   }
 
+  // ---- Zener Diodes: piecewise-linear companion model ----
+  for (const z of zeners) {
+    const st = zenerStates?.get(z.id);
+    const params = st ? st.params : getZenerParameters(z);
+    const tj = st ? st.tj : params.ambientTemp;
+    const vd = st ? st.vd : 0;
+    const iA = nodeIndex.get(z.nodeA);
+    const iB = nodeIndex.get(z.nodeB);
+    if (iA === undefined && iB === undefined) continue;
+
+    const { g, iEq } = getZenerLinearizedModel(vd, params, tj);
+    if (iA !== undefined) {
+      G[iA][iA] += g;
+      if (iB !== undefined) G[iA][iB] -= g;
+      I[iA] += iEq;
+    }
+    if (iB !== undefined) {
+      G[iB][iB] += g;
+      if (iA !== undefined) G[iB][iA] -= g;
+      I[iB] -= iEq;
+    }
+  }
+
   // ---- Current sources ----
   for (const cs of currentSources) {
     const iA = nodeIndex.get(cs.nodeA);
@@ -466,9 +510,24 @@ export function stepSimulation(
   const diodes = topology.components.filter(
     (c) => c.type === 'diode' || c.type === 'led',
   );
+  const zeners = topology.components.filter((c) => isZenerDiode(c.type));
+  const zenerStates = new Map<string, ZenerDiodeState>();
+  for (const z of zeners) {
+    const params = getZenerParameters(z);
+    const tj = state.zenerJunctionTemp?.get(z.id) ?? params.ambientTemp;
+    const prevSol = state.snapshot?.componentData.get(z.id);
+    const prevVd = prevSol ? prevSol.voltage : 0;
+    const { region } = getZenerLinearizedModel(prevVd, params, tj);
+    zenerStates.set(z.id, {
+      params,
+      region,
+      vd: prevVd,
+      tj,
+    });
+  }
 
-  const MAX_DIODE_ITERS = 12;
-  let net = buildInstantaneousNetwork(doc, topology, t, state, safeDt, diodeStates);
+  const MAX_DIODE_ITERS = 16;
+  let net = buildInstantaneousNetwork(doc, topology, t, state, safeDt, diodeStates, zenerStates);
   if (net.matrixSize === 0) return emptySnap();
 
   let sol: number[] | null = null;
@@ -479,7 +538,7 @@ export function stepSimulation(
       break;
     }
     sol = s;
-    if (diodes.length === 0) break;
+    if (diodes.length === 0 && zeners.length === 0) break;
 
     let changed = false;
     for (const d of diodes) {
@@ -495,8 +554,24 @@ export function stepSimulation(
         changed = true;
       }
     }
+
+    for (const z of zeners) {
+      const st = zenerStates.get(z.id)!;
+      const iA = net.nodeIndex.get(z.nodeA);
+      const iB = net.nodeIndex.get(z.nodeB);
+      const vA = iA !== undefined ? safe(sol[iA]) : 0;
+      const vB = iB !== undefined ? safe(sol[iB]) : 0;
+      const vd = vA - vB;
+      const { region } = getZenerLinearizedModel(vd, st.params, st.tj);
+      if (region !== st.region || Math.abs(vd - st.vd) > 0.02) {
+        st.region = region;
+        st.vd = vd;
+        changed = true;
+      }
+    }
+
     if (!changed) break;
-    net = buildInstantaneousNetwork(doc, topology, t, state, safeDt, diodeStates);
+    net = buildInstantaneousNetwork(doc, topology, t, state, safeDt, diodeStates, zenerStates);
   }
 
   if (!sol) {
@@ -532,6 +607,7 @@ export function stepSimulation(
 
   // ---- per-component instantaneous solution ----
   const componentData = new Map<string, ComponentSolution>();
+  const newZenerTemps = new Map<string, number>(state.zenerJunctionTemp);
   const supplyVoltage =
     doc.components.find((c) => c.type === 'battery' || c.type === 'acVoltageSource')
       ?.value ?? 0;
@@ -573,6 +649,11 @@ export function stepSimulation(
       current = st.conducting
         ? Math.max(0, (voltage - st.vDrop) / DIODE_R_ON)
         : voltage * DIODE_G_OFF;
+    } else if (isZenerDiode(comp.type)) {
+      const st = zenerStates.get(comp.id);
+      const params = st ? st.params : getZenerParameters(comp);
+      const prevTj = state.zenerJunctionTemp?.get(comp.id) ?? params.ambientTemp;
+      current = calculateZenerCurrent(voltage, params, prevTj);
     } else if (comp.type === 'lamp') {
       const r = lampResistance(comp.value, supplyVoltage);
       current = Number.isFinite(r) && r > 0 ? voltage / r : 0;
@@ -592,7 +673,7 @@ export function stepSimulation(
       currentDirection: current >= 0 ? 1 : -1,
     };
 
-    // Mechanical + optical state derived from the electrical solution,
+    // Mechanical + optical + semiconductor state derived from the electrical solution,
     // never from a timer.
     if (comp.type === 'dcMotor') {
       solution.rpm = motorRpm(voltage, current);
@@ -601,9 +682,27 @@ export function stepSimulation(
       solution.brightness = ledBrightness(current);
       solution.overload = Math.abs(current) > LED_RATED_CURRENT * 1.05;
     }
+    if (isZenerDiode(comp.type)) {
+      const st = zenerStates.get(comp.id);
+      const params = st ? st.params : getZenerParameters(comp);
+      const prevTj = state.zenerJunctionTemp?.get(comp.id) ?? params.ambientTemp;
+      const nextTj = stepZenerThermal(prevTj, power, params, safeDt);
+      newZenerTemps.set(comp.id, nextTj);
+      const status = evaluateZenerStatus(voltage, current, power, params, nextTj);
+
+      solution.zenerState = status.region;
+      solution.junctionTemp = nextTj;
+      solution.powerRatio = status.powerRatio;
+      solution.dynamicResistance = status.effectiveRz;
+      solution.thermalWarning = status.isThermalWarning;
+      solution.overload = status.isOverloaded;
+      solution.effectiveVz = status.vzEffective;
+    }
 
     componentData.set(comp.id, solution);
   }
+
+  state.zenerJunctionTemp = newZenerTemps;
 
   // ---- advance energy-storage state (Backward Euler) ----
   const newCapVoltages = new Map(state.capacitorVoltage);

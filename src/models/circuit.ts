@@ -47,7 +47,11 @@ export type ComponentType =
   | 'led'
   | 'acVoltageSource'
   | 'currentSource'
-  | 'acMotor';
+  | 'acMotor'
+  | 'zenerDiode'
+  | 'zener-diode';
+
+export type ZenerModelType = 'piecewise-linear' | 'advanced' | 'ideal' | 'custom';
 
 export interface CircuitComponent {
   id: string;
@@ -58,7 +62,7 @@ export interface CircuitComponent {
   rotation: Rotation;
   /** user-visible designator, e.g. "R1" */
   label: string;
-  /** electrical value in SI units (Ω, F, V, A, ...) */
+  /** electrical value in SI units (Ω, F, V, A, ...) - for Zener, nominal Vz in volts */
   value: number;
   /**
    * Coil inductance in henries. Only present on components that store energy
@@ -77,8 +81,36 @@ export interface CircuitComponent {
   offset?: number;
   /** LED emission color */
   color?: LedColor;
-  /** Forward voltage drop (V) for Diode and LED */
+  /** Forward voltage drop (V) for Diode, LED, and Zener Diode */
   forwardVoltage?: number;
+
+  /** Zener Diode Parameters */
+  zenerVoltage?: number;
+  zenerModel?: ZenerModelType;
+  /** Nominal test current Izt (A) */
+  zenerTestCurrent?: number;
+  /** Knee current Izk (A) */
+  zenerKneeCurrent?: number;
+  /** Dynamic resistance in breakdown rz (Ω) */
+  zenerResistance?: number;
+  /** Forward dynamic resistance rd_forward (Ω) */
+  forwardResistance?: number;
+  /** Reverse leakage current Ileak (A) */
+  reverseLeakage?: number;
+  /** Maximum rated power dissipation (W) */
+  ratedPower?: number;
+  /** Temperature coefficient alpha in mV/°C */
+  tempCoeff?: number;
+  /** Ambient temperature (°C) */
+  ambientTemp?: number;
+  /** Thermal resistance Rth (°C/W) */
+  thermalResistance?: number;
+  /** Thermal capacitance Cth (J/°C) */
+  thermalCapacitance?: number;
+  /** Enable dynamic thermal simulation */
+  dynamicThermal?: boolean;
+  /** Manufacturer part number / preset identifier */
+  preset?: string;
 }
 
 /** A wire endpoint. When `componentId` is null the end is free (disconnected). */

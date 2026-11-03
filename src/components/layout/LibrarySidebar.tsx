@@ -171,6 +171,9 @@ export function LibrarySidebar() {
   const normalizedSearch = search.trim().toLowerCase();
 
   const filteredTypes = allTypes.filter((type) => {
+    // Avoid duplicate tiles for hyphenated alias
+    if (type === 'zener-diode') return false;
+
     // Category filter
     if (activeCategory !== 'all' && SYMBOLS[type].category !== activeCategory) {
       return false;

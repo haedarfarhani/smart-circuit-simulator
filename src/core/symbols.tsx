@@ -267,6 +267,60 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
       </>
     ),
   },
+  zenerDiode: {
+    type: 'zenerDiode',
+    prefix: 'DZ',
+    category: 'passive',
+    defaultValue: 5.1,
+    unit: 'V',
+    w: 88,
+    h: 38,
+    terminals: [TERMINAL_LEFT, TERMINAL_RIGHT],
+    body: (
+      <>
+        {line(-LEAD_LEN, 0, -14, 0)}
+        {line(14, 0, LEAD_LEN, 0)}
+        {/* Anode triangle pointing right to Cathode */}
+        <polygon points="-14,-14 14,0 -14,14" className="sym-fill" fill="currentColor" />
+        {/* Zener bent cathode bar: top bent left, bottom bent right */}
+        <path
+          d="M 8 -14 L 14 -14 L 14 14 L 20 14"
+          className="sym-line"
+          strokeWidth={2.4}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ),
+  },
+  'zener-diode': {
+    type: 'zener-diode',
+    prefix: 'DZ',
+    category: 'passive',
+    defaultValue: 5.1,
+    unit: 'V',
+    w: 88,
+    h: 38,
+    terminals: [TERMINAL_LEFT, TERMINAL_RIGHT],
+    body: (
+      <>
+        {line(-LEAD_LEN, 0, -14, 0)}
+        {line(14, 0, LEAD_LEN, 0)}
+        {/* Anode triangle pointing right to Cathode */}
+        <polygon points="-14,-14 14,0 -14,14" className="sym-fill" fill="currentColor" />
+        {/* Zener bent cathode bar: top bent left, bottom bent right */}
+        <path
+          d="M 8 -14 L 14 -14 L 14 14 L 20 14"
+          className="sym-line"
+          strokeWidth={2.4}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>
+    ),
+  },
   led: {
     type: 'led',
     prefix: 'LED',

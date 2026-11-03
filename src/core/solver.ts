@@ -1,5 +1,13 @@
 import { DEFAULT_SOLENOID_INDUCTANCE } from '../models/circuit';
-import type { CircuitDoc, ComponentType, Wire } from '../models/circuit';
+import type { CircuitDoc, ComponentType, Wire, ZenerModelType } from '../models/circuit';
+import {
+  isZenerDiode,
+  getZenerParameters,
+  getZenerLinearizedModel,
+  calculateZenerCurrent,
+  evaluateZenerStatus,
+  type ZenerParameters,
+} from './zenerModel';
 
 /**
  * Instantaneous AC voltage from a real sinusoidal source.
@@ -58,8 +66,20 @@ export interface ComponentSolution {
   rpm?: number;
   /** 0..1 emission intensity of an LED, derived from forward current */
   brightness?: number;
-  /** true when an LED is driven beyond its rated current */
+  /** true when an LED or Zener is driven beyond its rated current/power */
   overload?: boolean;
+  /** Zener diode operating state */
+  zenerState?: 'forward' | 'blocking' | 'breakdown' | 'idle';
+  /** Junction temperature (°C) */
+  junctionTemp?: number;
+  /** Power dissipation ratio (P / Prated) */
+  powerRatio?: number;
+  /** Effective dynamic resistance at the operating point (Ω) */
+  dynamicResistance?: number;
+  /** High temperature or power safety warning */
+  thermalWarning?: boolean;
+  /** Effective breakdown voltage accounting for temperature */
+  effectiveVz?: number;
 }
 
 export interface CircuitTopology {
@@ -90,10 +110,24 @@ export interface ComponentInfo {
   phaseDeg?: number;
   /** DC offset in volts (AC sources) */
   offset?: number;
-  color?: string;
+  color?: import('../models/circuit').LedColor;
   forwardVoltage?: number;
   /** coil inductance in henries, for components that store energy magnetically */
   inductance?: number;
+  zenerVoltage?: number;
+  zenerModel?: ZenerModelType;
+  zenerTestCurrent?: number;
+  zenerKneeCurrent?: number;
+  zenerResistance?: number;
+  forwardResistance?: number;
+  reverseLeakage?: number;
+  ratedPower?: number;
+  tempCoeff?: number;
+  ambientTemp?: number;
+  thermalResistance?: number;
+  thermalCapacitance?: number;
+  dynamicThermal?: boolean;
+  preset?: string;
 }
 
 const GRID = 10;
@@ -253,6 +287,20 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       forwardVoltage: comp.forwardVoltage,
       inductance:
         comp.inductance ?? (comp.type === 'solenoid' ? DEFAULT_SOLENOID_INDUCTANCE : undefined),
+      zenerVoltage: comp.zenerVoltage,
+      zenerModel: comp.zenerModel,
+      zenerTestCurrent: comp.zenerTestCurrent,
+      zenerKneeCurrent: comp.zenerKneeCurrent,
+      zenerResistance: comp.zenerResistance,
+      forwardResistance: comp.forwardResistance,
+      reverseLeakage: comp.reverseLeakage,
+      ratedPower: comp.ratedPower,
+      tempCoeff: comp.tempCoeff,
+      ambientTemp: comp.ambientTemp,
+      thermalResistance: comp.thermalResistance,
+      thermalCapacitance: comp.thermalCapacitance,
+      dynamicThermal: comp.dynamicThermal,
+      preset: comp.preset,
     });
   }
 
@@ -331,9 +379,11 @@ function solveDC(
       !c.currentSource &&
       !isOpenAtDC(c.type) &&
       c.type !== 'diode' &&
-      c.type !== 'led',
+      c.type !== 'led' &&
+      !isZenerDiode(c.type),
   );
   const diodes = components.filter((c) => c.type === 'diode' || c.type === 'led');
+  const zeners = components.filter((c) => isZenerDiode(c.type));
 
   const numNodes = nodeList.length;
   const numVoltageSources = voltageSources.length;
@@ -355,16 +405,33 @@ function solveDC(
   const vsIndex = new Map<string, number>();
   voltageSources.forEach((vs, i) => vsIndex.set(vs.id, numNodes + i));
 
-  // Iterative solver for non-linear diodes (up to 20 iterations)
-  // Initially assume all diodes are OFF
+  // Iterative solver for non-linear diodes and Zener diodes
+  // Initially assume all diodes are OFF / reverse blocking
   const diodeStates = new Map<string, { conducting: boolean; vDrop: number }>();
   for (const d of diodes) {
     const defaultVf = d.type === 'led' ? (d.forwardVoltage ?? 2.0) : (d.forwardVoltage ?? 0.7);
     diodeStates.set(d.id, { conducting: false, vDrop: defaultVf });
   }
 
+  interface ZenerSolverState {
+    params: ZenerParameters;
+    region: 'forward' | 'blocking' | 'breakdown';
+    vd: number;
+    tj: number;
+  }
+  const zenerStates = new Map<string, ZenerSolverState>();
+  for (const z of zeners) {
+    const params = getZenerParameters(z);
+    zenerStates.set(z.id, {
+      params,
+      region: 'blocking',
+      vd: 0,
+      tj: params.ambientTemp,
+    });
+  }
+
   let finalSolution: number[] | null = null;
-  const MAX_ITERS = 16;
+  const MAX_ITERS = 24;
 
   for (let iter = 0; iter < MAX_ITERS; iter++) {
     const G = new Array(matrixSize).fill(0).map(() => new Array(matrixSize).fill(0));
@@ -425,6 +492,25 @@ function solveDC(
       }
     }
 
+    // Zener Diodes PWL / Linearized Companion
+    for (const z of zeners) {
+      const zState = zenerStates.get(z.id)!;
+      const iA = nodeIndex.get(z.nodeA); // Anode
+      const iB = nodeIndex.get(z.nodeB); // Cathode
+      const { g, iEq } = getZenerLinearizedModel(zState.vd, zState.params, zState.tj);
+
+      if (iA !== undefined) {
+        G[iA][iA] += g;
+        if (iB !== undefined) G[iA][iB] -= g;
+        I[iA] += iEq;
+      }
+      if (iB !== undefined) {
+        G[iB][iB] += g;
+        if (iA !== undefined) G[iB][iA] -= g;
+        I[iB] -= iEq;
+      }
+    }
+
     // Independent Current Sources (Terminal 0 = Anode/In, Terminal 1 = Cathode/Out)
     for (const cs of currentSources) {
       const val = cs.value; // Current flows from nodeA to nodeB
@@ -451,7 +537,7 @@ function solveDC(
     if (!sol) break;
     finalSolution = sol;
 
-    if (diodes.length === 0) break;
+    if (diodes.length === 0 && zeners.length === 0) break;
 
     // Check diode state convergence
     let changed = false;
@@ -466,6 +552,21 @@ function solveDC(
 
       if (shouldConduct !== state.conducting) {
         state.conducting = shouldConduct;
+        changed = true;
+      }
+    }
+
+    for (const z of zeners) {
+      const zState = zenerStates.get(z.id)!;
+      const iA = nodeIndex.get(z.nodeA);
+      const iB = nodeIndex.get(z.nodeB);
+      const vA = iA !== undefined ? sol[iA] : 0;
+      const vB = iB !== undefined ? sol[iB] : 0;
+      const vd = vA - vB;
+      const { region } = getZenerLinearizedModel(vd, zState.params, zState.tj);
+      if (region !== zState.region || Math.abs(vd - zState.vd) > 0.02) {
+        zState.region = region;
+        zState.vd = vd;
         changed = true;
       }
     }
@@ -514,6 +615,27 @@ function solveDC(
       } else {
         current = voltage * 1e-7;
       }
+    } else if (isZenerDiode(comp.type)) {
+      const zState = zenerStates.get(comp.id);
+      const params = zState ? zState.params : getZenerParameters(comp);
+      const tj = zState ? zState.tj : params.ambientTemp;
+      current = calculateZenerCurrent(voltage, params, tj);
+      const power = Math.abs(voltage * current);
+      const status = evaluateZenerStatus(voltage, current, power, params, tj);
+      componentData.set(comp.id, {
+        voltage,
+        current,
+        power,
+        currentDirection: current >= 0 ? 1 : -1,
+        zenerState: status.region,
+        junctionTemp: status.tj,
+        powerRatio: status.powerRatio,
+        dynamicResistance: status.effectiveRz,
+        thermalWarning: status.isThermalWarning,
+        overload: status.isOverloaded,
+        effectiveVz: status.vzEffective,
+      });
+      continue;
     } else if (comp.type === 'lamp') {
       const r = resistanceOf(comp);
       current = Number.isFinite(r) && r > 0 ? voltage / r : 0;

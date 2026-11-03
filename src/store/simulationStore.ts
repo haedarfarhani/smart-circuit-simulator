@@ -94,6 +94,7 @@ export interface SimulationState {
   // Hidden integrator state — not read by renderers directly
   capacitorVoltage: Map<string, number>;
   inductorCurrent: Map<string, number>;
+  zenerJunctionTemp: Map<string, number>;
 
   // Controls
   start: () => void;
@@ -126,6 +127,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
     maxSamples: 10000,
     capacitorVoltage: new Map(),
     inductorCurrent: new Map(),
+    zenerJunctionTemp: new Map(),
 
     start: () => {
       const s = get();
@@ -144,6 +146,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
           warnings: [],
           capacitorVoltage: new Map(),
           inductorCurrent: new Map(),
+          zenerJunctionTemp: new Map(),
         });
         // Re-calc topology/analysis for the analyzer panel
         const result = solveCircuit(doc);
@@ -186,6 +189,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         solverResult: result,
         capacitorVoltage: new Map(),
         inductorCurrent: new Map(),
+        zenerJunctionTemp: new Map(),
       });
     },
 
@@ -201,6 +205,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         topology,
         capacitorVoltage: s.capacitorVoltage ?? new Map(),
         inductorCurrent: s.inductorCurrent ?? new Map(),
+        zenerJunctionTemp: s.zenerJunctionTemp ?? new Map(),
         simTime: s.simTime,
         status: 'paused',
         snapshot: s.snapshot,
@@ -243,6 +248,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
           topology,
           capacitorVoltage: engineState.capacitorVoltage,
           inductorCurrent: engineState.inductorCurrent,
+          zenerJunctionTemp: engineState.zenerJunctionTemp ?? new Map(),
           samples: ns.length > st.maxSamples ? ns.slice(-st.maxSamples) : ns,
           channelSamples: nextChannels,
         };
@@ -324,6 +330,7 @@ function electricalLoop() {
     // final state instead of one update per timestep.
     let capacitorVoltage = store.capacitorVoltage ?? new Map<string, number>();
     let inductorCurrent = store.inductorCurrent ?? new Map<string, number>();
+    let zenerJunctionTemp = store.zenerJunctionTemp ?? new Map<string, number>();
     let simTime = store.simTime;
     let snapshot = store.snapshot;
     let samples = store.samples;
@@ -346,6 +353,7 @@ function electricalLoop() {
         topology,
         capacitorVoltage,
         inductorCurrent,
+        zenerJunctionTemp,
         simTime,
         status: 'running',
         snapshot,
@@ -357,6 +365,7 @@ function electricalLoop() {
       // Publish the mutated integrator state for the next iteration.
       capacitorVoltage = engineState.capacitorVoltage;
       inductorCurrent = engineState.inductorCurrent;
+      zenerJunctionTemp = engineState.zenerJunctionTemp ?? new Map<string, number>();
       simTime = snap.simTime;
       snapshot = snap;
 
@@ -425,6 +434,7 @@ function electricalLoop() {
         topology,
         capacitorVoltage,
         inductorCurrent,
+        zenerJunctionTemp,
         samples,
         channelSamples,
         errors,

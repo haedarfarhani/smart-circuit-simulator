@@ -100,12 +100,11 @@ Period ≈ 20 ms
 | Current source | Ideal DC |
 | Switch | Open / closed |
 | Diode | Forward drop model |
-| LED | Forward drop + color |
+| Zener Diode | Complete piecewise-linear + Shockley-avalanche breakdown, thermal integration, presets |
+| LED | Forward drop + color emission |
 | Lamp | Temperature-dependent R, glow |
 | DC motor / AC motor | Electromechanical readout |
 | Ground | 0 V reference |
-
-Transistor and advanced semiconductor models are roadmap items, not yet included.
 
 ---
 
