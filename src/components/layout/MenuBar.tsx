@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCircuitStore } from '../../store/circuitStore';
 import { useUiStore } from '../../store/uiStore';
-import { SIM_SPEED_PRESETS, simSpeedLabel, useSimulationStore } from '../../store/simulationStore';
 import { makeT } from '../../i18n';
 import { EXAMPLE_CIRCUITS, getExample } from '../../core/examples';
 
@@ -32,116 +31,33 @@ function BrandLogo() {
   );
 }
 
-function HeaderSimulationControls() {
-  const ui = useUiStore();
-  const t = makeT(ui.locale);
-  const simulationStatus = useSimulationStore((s) => s.status);
-  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
-  const speedRef = useRef<HTMLDivElement>(null);
+/** Fixed anchor for a menu dropdown, computed from its trigger button. */
+interface MenuAnchor {
+  top: number;
+  start: number;
+}
 
-  useEffect(() => {
-    if (!speedMenuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (speedRef.current && !speedRef.current.contains(e.target as Node)) {
-        setSpeedMenuOpen(false);
-      }
-    };
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
-  }, [speedMenuOpen]);
+/** Distance kept from the viewport edge when clamping a dropdown. */
+const MENU_EDGE = 8;
 
-  const speedPresets = SIM_SPEED_PRESETS;
-
-  return (
-    <div className="sim-header-group">
-      <button
-        type="button"
-        className={`sim-power-pill ${ui.simulationEnabled ? 'is-running' : 'is-stopped'}`}
-        data-running={simulationStatus === 'running'}
-        onClick={() => ui.setSimulationEnabled(!ui.simulationEnabled)}
-        aria-pressed={ui.simulationEnabled}
-        title={ui.simulationEnabled ? t('sim.disable') : t('sim.enable')}
-      >
-        <span className="power-indicator-ring">
-          <span className="power-indicator-dot" />
-        </span>
-        <svg
-          className="sim-power-icon"
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          {ui.simulationEnabled ? (
-            <path d="M4.5 3.5A.5.5 0 0 1 5 4v8a.5.5 0 0 1-1 0V4a.5.5 0 0 1 .5-.5zm7 0a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-1 0V4a.5.5 0 0 1 .5-.5z" />
-          ) : (
-            <path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z" />
-          )}
-        </svg>
-        <span className="sim-power-text">
-          {ui.simulationEnabled
-            ? simulationStatus === 'running'
-              ? t('sim.running')
-              : t('sim.paused')
-            : t('sim.off')}
-        </span>
-      </button>
-
-      {/* Speed Controller Popover */}
-      <div className="sim-speed-popover-wrap" ref={speedRef}>
-        <button
-          type="button"
-          className="sim-speed-trigger"
-          title={t('sim.speed')}
-          onClick={() => setSpeedMenuOpen(!speedMenuOpen)}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="m11.5 8 .5-.5a3.5 3.5 0 1 0-7 0l.5.5a2.5 2.5 0 1 1 6 0z" />
-            <path d="M8 8.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" />
-          </svg>
-          <span>{ui.simulationSpeed.toFixed(1)}x</span>
-        </button>
-
-        {speedMenuOpen && (
-          <div className="sim-speed-menu">
-            <div className="speed-menu-title">{t('sim.speed')}</div>
-            <div className="speed-preset-pills">
-              {speedPresets.map((sp) => (
-                <button
-                  key={sp}
-                  type="button"
-                  className={`speed-pill ${ui.simulationSpeed === sp ? 'active' : ''}`}
-                  onClick={() => {
-                    ui.setSimulationSpeed(sp);
-                    setSpeedMenuOpen(false);
-                  }}
-                >
-                  {simSpeedLabel(sp)}
-                </button>
-              ))}
-            </div>
-            <div className="speed-slider-row">
-              <input
-                type="range"
-                min="0.1"
-                max="10"
-                step="0.1"
-                value={ui.simulationSpeed}
-                onChange={(e) => ui.setSimulationSpeed(Number(e.target.value))}
-                className="speed-range-slider"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function anchorForButton(btn: HTMLElement): MenuAnchor {
+  const r = btn.getBoundingClientRect();
+  const rtl = document.documentElement.dir === 'rtl';
+  const start = rtl ? window.innerWidth - r.right : r.left;
+  return {
+    top: r.bottom + 6,
+    start: Math.max(
+      MENU_EDGE,
+      Math.min(start, window.innerWidth - 238 - MENU_EDGE),
+    ),
+  };
 }
 
 export function MenuBar() {
   const [open, setOpen] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const groupRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const store = useCircuitStore();
   const ui = useUiStore();
@@ -158,6 +74,14 @@ export function MenuBar() {
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, [open]);
+
+  /** Open (or re-anchor) a dropdown. The dropdown is position:fixed so the
+      menubar's horizontal scroll container can never clip it. */
+  const openGroup = (id: string) => {
+    const btn = groupRefs.current[id];
+    setAnchor(btn ? anchorForButton(btn) : null);
+    setOpen(id);
+  };
 
   const zoomBy = (factor: number) =>
     ui.setView({ zoom: ui.zoom * factor });
@@ -261,6 +185,10 @@ export function MenuBar() {
       action: () => ui.setLegendVisible(!ui.legendVisible),
     },
     {
+      labelKey: 'menu.view.toggleInspector',
+      action: () => ui.toggleInspector(),
+    },
+    {
       labelKey: 'menu.view.toggleTheme',
       action: () => ui.toggleTheme(),
     },
@@ -283,6 +211,7 @@ export function MenuBar() {
 
   return (
     <header className="menubar" ref={rootRef}>
+      <div className="menubar-row">
       {/* 1. Brand Logo & Name */}
       <div className="brand">
         <button
@@ -315,13 +244,24 @@ export function MenuBar() {
               data-open={open === g.id}
               aria-haspopup="menu"
               aria-expanded={open === g.id}
-              onClick={() => setOpen(open === g.id ? null : g.id)}
-              onMouseEnter={() => open && setOpen(g.id)}
+              ref={(el) => {
+                groupRefs.current[g.id] = el;
+              }}
+              onClick={() => (open === g.id ? setOpen(null) : openGroup(g.id))}
+              onMouseEnter={() => open && openGroup(g.id)}
             >
               {t(g.labelKey)}
             </button>
-            {open === g.id && (
-              <div className="menu-dropdown" role="menu">
+            {open === g.id && anchor && (
+              <div
+                className="menu-dropdown"
+                role="menu"
+                style={{
+                  position: 'fixed',
+                  top: anchor.top,
+                  insetInlineStart: anchor.start,
+                }}
+              >
                 {g.items.map((item, i) =>
                   item.separator ? (
                     <div className="menu-sep" key={`sep${i}`} />
@@ -347,105 +287,12 @@ export function MenuBar() {
         ))}
       </nav>
 
-      <div className="header-divider" />
-
-      {/* 3. Primary Mode Tools (Select & Wire) */}
-      <div className="workbench-tools" role="toolbar" aria-label="Workbench tools">
-        <button
-          className="mode-tool-btn"
-          data-active={ui.tool === 'select'}
-          onClick={() => ui.setTool('select')}
-          title={`${t('tool.select')} (V)`}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3 2l10 6-4.5 1.2L11 14l-2 .8-2.4-4.6L3 12.5z" />
-          </svg>
-          <span className="mode-label">{t('tool.select')}</span>
-        </button>
-
-        <button
-          className="mode-tool-btn"
-          data-active={ui.tool === 'wire'}
-          onClick={() => ui.setTool('wire')}
-          title={`${t('tool.wire')} (W)`}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M2 13h4l4-10h4" strokeLinecap="round" />
-            <circle cx="2" cy="13" r="1.5" fill="currentColor" />
-            <circle cx="14" cy="3" r="1.5" fill="currentColor" />
-          </svg>
-          <span className="mode-label">{t('tool.wire')}</span>
-        </button>
-      </div>
-
-      <div className="header-divider" />
-
-      {/* 4. Interactive Simulation Master Controls */}
-      <HeaderSimulationControls />
-
       <div className="menubar-spacer" />
 
-      {/* 5. Analysis / Learning Feature Tabs */}
-      <div className="feature-nav-group" role="tablist" aria-label="Feature Views">
-        <button
-          className="feature-nav-btn"
-          data-active={ui.inspectorTab === 'analysis'}
-          onClick={() => ui.setInspectorTab('analysis')}
-          title={t('features.analyzer')}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M8 5v3M8 11h.01" strokeLinecap="round" />
-          </svg>
-          <span>{t('features.analyzer')}</span>
-        </button>
-
-        <button
-          className="feature-nav-btn"
-          data-active={ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope'}
-          onClick={() => {
-            ui.setBottomPanelTab('oscilloscope');
-            ui.setBottomPanelOpen(!ui.bottomPanelOpen || ui.bottomPanelTab !== 'oscilloscope');
-          }}
-          title={t('features.oscilloscope')}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
-            <path d="M3.5 10l2.5-4 2 4 2.5-4 2 4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>{t('features.oscilloscope')}</span>
-        </button>
-
-        <button
-          className="feature-nav-btn"
-          data-active={ui.inspectorTab === 'learning'}
-          onClick={() => ui.setInspectorTab('learning')}
-          title={t('features.learning')}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 2a3 3 0 100 6 3 3 0 000-6z" />
-            <path d="M5 12c0-1.7 1.3-3 3-3s3 1.3 3 3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-          <span>{t('features.learning')}</span>
-        </button>
-
-        <button
-          className="feature-nav-btn"
-          data-active={ui.inspectorTab === 'practice'}
-          onClick={() => ui.setInspectorTab('practice')}
-          title={t('features.practice')}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4 3h3v3H4zM9 3h3v3h-3zM4 9h3v3H4z" opacity="0.6" />
-            <path d="M10 9h4v2h-4zM9 12h2v2h-2z" />
-          </svg>
-          <span>{t('features.practice')}</span>
-        </button>
-      </div>
-
-      <div className="header-divider" />
-
-      {/* 6. Language & Theme Utilities */}
+      {/* 3. Language & Theme Utilities. Settings and the shortcuts dialog stay
+             in the File / View / Help menus — no duplicate header icons.
+             Analyzer / Learning / Practice live in the inspector tabs; the
+             Oscilloscope has its own button on the canvas HUD. */}
       <div className="utility-group">
         <button
           className="lang-toggle-btn"
@@ -476,29 +323,7 @@ export function MenuBar() {
             </svg>
           )}
         </button>
-
-        <button
-          className="theme-toggle-btn"
-          title={t('settings.open')}
-          aria-label={t('settings.open')}
-          onClick={() => ui.setDialog('settings')}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z" />
-          </svg>
-        </button>
-
-        <button
-          className="help-icon-btn"
-          title={t('menu.help.shortcuts')}
-          aria-label={t('menu.help.shortcuts')}
-          onClick={() => ui.setDialog('about')}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0-1A6 6 0 1 0 8 2a6 6 0 0 0 0 12z" />
-            <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z" />
-          </svg>
-        </button>
+      </div>
       </div>
     </header>
   );

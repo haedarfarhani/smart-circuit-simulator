@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Tool = 'select' | 'wire';
+export type Tool = 'select' | 'wire' | 'hand';
 
 /** An in-progress wire being drawn (kept in the store so Esc can cancel it). */
 export interface WireDraft {
@@ -81,6 +81,11 @@ export interface Prefs {
   onboardingDone: boolean;
   favoriteTypes: string[];
   recentTypes: string[];
+  /** header tools cluster (Select/Wire) expanded */
+  simToolbarExpanded: boolean;
+  /** header feature-views cluster expanded */
+  /** floating canvas HUD toolbar visible */
+  hudVisible: boolean;
 }
 
 export const MIN_BOTTOM_PANEL_HEIGHT = 200;
@@ -106,6 +111,8 @@ function loadPrefs(): Prefs {
     onboardingDone: false,
     favoriteTypes: [],
     recentTypes: [],
+    simToolbarExpanded: true,
+    hudVisible: true,
   };
   try {
     if (typeof localStorage === 'undefined') return fallback;
@@ -138,11 +145,13 @@ function loadPrefs(): Prefs {
       bottomPanelHeight: height,
       inspectorWidth: width,
       inspectorCollapsed: p.inspectorCollapsed === true,
-      vizColors: { ...DEFAULT_VIZ_COLORS, ...(p.vizColors ?? {}) },
-      onboardingDone: p.onboardingDone === true,
-      favoriteTypes: Array.isArray(p.favoriteTypes) ? p.favoriteTypes : [],
-      recentTypes: Array.isArray(p.recentTypes) ? p.recentTypes : [],
-    };
+    vizColors: { ...DEFAULT_VIZ_COLORS, ...(p.vizColors ?? {}) },
+    onboardingDone: p.onboardingDone === true,
+    favoriteTypes: Array.isArray(p.favoriteTypes) ? p.favoriteTypes : [],
+    recentTypes: Array.isArray(p.recentTypes) ? p.recentTypes : [],
+    simToolbarExpanded: p.simToolbarExpanded !== false,
+    hudVisible: p.hudVisible !== false,
+  };
   } catch {
     return fallback;
   }
@@ -194,6 +203,8 @@ export interface UiState {
   recentTypes: string[];
   legendVisible: boolean;
   scopeFullscreen: boolean;
+  simToolbarExpanded: boolean;
+  hudVisible: boolean;
 
   setTool(t: Tool): void;
   select(ids: string[]): void;
@@ -229,6 +240,8 @@ export interface UiState {
   recordRecent(type: string): void;
   setLegendVisible(v: boolean): void;
   setScopeFullscreen(v: boolean): void;
+  toggleSimToolbar(): void;
+  setHudVisible(v: boolean): void;
 }
 
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -267,6 +280,8 @@ export const useUiStore = create<UiState>((set, get) => {
     recentTypes: prefs.recentTypes,
     legendVisible: false,
     scopeFullscreen: false,
+    simToolbarExpanded: prefs.simToolbarExpanded,
+    hudVisible: prefs.hudVisible,
 
     setTool: (t) => set({ tool: t, statusKey: null }),
     select: (ids) => set({ selection: ids }),
@@ -406,6 +421,15 @@ export const useUiStore = create<UiState>((set, get) => {
     },
     setLegendVisible: (v) => set({ legendVisible: v }),
     setScopeFullscreen: (v) => set({ scopeFullscreen: v }),
+    toggleSimToolbar: () => {
+      const v = !get().simToolbarExpanded;
+      set({ simToolbarExpanded: v });
+      persistPrefs({ ...prefsFrom(get()), simToolbarExpanded: v });
+    },
+    setHudVisible: (v) => {
+      set({ hudVisible: v });
+      persistPrefs({ ...prefsFrom(get()), hudVisible: v });
+    },
   };
 });
 
@@ -425,6 +449,8 @@ function prefsFrom(s: UiState): Prefs {
     onboardingDone: s.onboardingDone,
     favoriteTypes: s.favoriteTypes,
     recentTypes: s.recentTypes,
+    simToolbarExpanded: s.simToolbarExpanded,
+    hudVisible: s.hudVisible,
   };
 }
 

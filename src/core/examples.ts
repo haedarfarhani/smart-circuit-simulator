@@ -1,11 +1,13 @@
 import { type CircuitDoc, type Point, type WireEndpoint, type ComponentType } from '../models/circuit';
 import { newId, GRID_SIZE } from '../models/circuit';
+import { isDigitalType, applyDigitalDefaults } from './digital/types';
+import { buildDigitalExamples } from './examplesDigital';
 
 /**
  * Helper to build a CircuitDoc from a declarative description.
  * Coordinates are in grid units (multiplied by GRID_SIZE internally).
  */
-function makeDoc(
+export function makeDoc(
   comps: {
     x: number;
     y: number;
@@ -49,6 +51,7 @@ function makeDoc(
     if (c.dynamicThermal !== undefined) comp.dynamicThermal = c.dynamicThermal;
     if (c.tempCoeff !== undefined) comp.tempCoeff = c.tempCoeff;
     if (c.fields) Object.assign(comp, c.fields);
+    if (isDigitalType(c.type)) applyDigitalDefaults(comp);
     return comp;
   });
 
@@ -74,7 +77,7 @@ function makeDoc(
   return { components, wires: wires2 };
 }
 
-const term = (compLabel: string, idx: number): WireEndpoint => ({
+export const term = (compLabel: string, idx: number): WireEndpoint => ({
   componentId: compLabel,
   terminalIndex: idx,
   point: null,
@@ -712,6 +715,10 @@ export const EXAMPLE_CIRCUITS: ExampleCircuit[] = [
     ),
   },
 ];
+
+// Digital example circuits (defined in examplesDigital.ts) share the same
+// library array: they appear in the File menu alongside the analog ones.
+EXAMPLE_CIRCUITS.push(...buildDigitalExamples());
 
 export function getExample(id: string): ExampleCircuit | undefined {
   return EXAMPLE_CIRCUITS.find((e) => e.id === id);

@@ -18,7 +18,7 @@ export function StatusBar() {
   const lastChange = useCircuitStore((s) => s.lastChange);
   const savedAt = useCircuitStore((s) => s.savedAt);
 
-  let message = t(`${tool === 'wire' ? 'tool.wire' : 'tool.select'}.hint`);
+  let message = t(`tool.${tool === 'wire' || tool === 'hand' ? tool : 'select'}.hint`);
   if (selection.length > 0) message = `${selection.length} · ${t('status.components')}`;
   if (statusKey) message = t(statusKey);
   if (wireDraft) message = t('status.wireStart');

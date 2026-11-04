@@ -18,6 +18,29 @@ import { SYMBOLS } from '../core/symbols';
 import { applyCapacitorPreset, DEFAULT_CAPACITOR_PRESET } from '../core/capacitorModel';
 import { labelsFor } from '../core/labels';
 import { offsetWire } from '../core/wirePath';
+import {
+  applyDigitalDefaults,
+  isDigitalType,
+  resolveDigitalCompParams,
+} from '../core/digital/types';
+import { devicePins } from '../core/digital/devices';
+
+/**
+ * Drop wires that point past a component's current pin count — the digital
+ * multi-bit devices can lose pins when width / mode properties change.
+ */
+function pruneDanglingWires(doc: CircuitDoc): void {
+  const counts = new Map<string, number>();
+  for (const c of doc.components) {
+    const n = isDigitalType(c.type)
+      ? devicePins(c.type, resolveDigitalCompParams(c)).length
+      : SYMBOLS[c.type].terminals.length;
+    counts.set(c.id, n);
+  }
+  const ok = (ep: WireEndpoint): boolean =>
+    !ep.componentId || ep.terminalIndex < (counts.get(ep.componentId) ?? 0);
+  doc.wires = doc.wires.filter((w) => ok(w.start) && ok(w.end));
+}
 
 const HISTORY_LIMIT = 100;
 const DOC_STORAGE_KEY = 'circuit-lab:doc';
@@ -166,6 +189,9 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
       // ideal capacitor with hidden zeros for ESR/leakage/thermal data.
       Object.assign(comp, applyCapacitorPreset(DEFAULT_CAPACITOR_PRESET));
     }
+    if (isDigitalType(type)) {
+      applyDigitalDefaults(comp);
+    }
     get().commit((d) => {
       d.components.push(comp);
     });
@@ -181,6 +207,16 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     get().commit((d) => {
       for (const c of d.components) {
         if (idSet.has(c.id)) Object.assign(c, patch);
+      }
+      // Shrink-configurable digital devices can lose pins; wires attached
+      // to a removed terminal would point at a nonexistent index.
+      if (
+        'width' in patch ||
+        'inputCount' in patch ||
+        'shiftMode' in patch ||
+        'counterMode' in patch
+      ) {
+        pruneDanglingWires(d);
       }
     }, tag);
   },

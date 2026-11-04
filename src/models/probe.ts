@@ -55,6 +55,8 @@ export interface OscilloscopeChannel {
    * Used for transistor junction temperature and dissipation.
    */
   quantity?: 'power' | 'temperature' | null;
+  /** digital node: render as a step trace with duty-cycle/edge stats */
+  logic?: boolean;
   /** user-facing name, e.g. "R1 → GND" */
   label: string;
   color: string;
@@ -204,6 +206,54 @@ export function channelSymbol(channel: OscilloscopeChannel): string {
   if (channel.quantity === 'power') return 'P';
   if (channel.quantity === 'temperature') return 'T';
   return channel.type === 'voltage' ? 'V' : 'I';
+}
+
+/**
+ * Duty cycle of a logic channel's visible samples: fraction of time the
+ * signal is above the midpoint between its observed levels. Returns null
+ * for non-logic channels or flat/absent data.
+ */
+export function logicDutyCycle(samples: ChannelSample[]): number | null {
+  if (samples.length < 4) return null;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of samples) {
+    if (s.value < min) min = s.value;
+    if (s.value > max) max = s.value;
+  }
+  const span = max - min;
+  if (span < 0.5) return null; // flat line — no meaningful duty
+  const threshold = min + span / 2;
+  let highTime = 0;
+  let total = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const dt = samples[i].t - samples[i - 1].t;
+    if (dt <= 0) continue;
+    total += dt;
+    const mid = (samples[i].value + samples[i - 1].value) / 2;
+    if (mid >= threshold) highTime += dt;
+  }
+  return total > 0 ? highTime / total : null;
+}
+
+/** Edge count (rising + falling) in the visible window. */
+export function logicEdgeCount(samples: ChannelSample[]): number {
+  if (samples.length < 4) return 0;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of samples) {
+    if (s.value < min) min = s.value;
+    if (s.value > max) max = s.value;
+  }
+  const threshold = min + (max - min) / 2;
+  let edges = 0;
+  let above: boolean | null = null;
+  for (const s of samples) {
+    const isAbove = s.value >= threshold;
+    if (above !== null && isAbove !== above) edges++;
+    above = isAbove;
+  }
+  return edges;
 }
 
 /** Axis/scale options appropriate for the channel's unit. */

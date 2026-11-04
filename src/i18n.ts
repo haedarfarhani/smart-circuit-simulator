@@ -24,6 +24,7 @@ const en: Dict = {
   'menu.view.zoomOut': 'Zoom out',
   'menu.view.resetZoom': 'Reset zoom',
   'menu.view.toggleGrid': 'Show grid',
+  'menu.view.toggleInspector': 'Show / hide properties panel',
   'menu.view.toggleTheme': 'Toggle light / dark',
   'menu.help.shortcuts': 'Shortcuts & about',
 
@@ -32,6 +33,9 @@ const en: Dict = {
   'tool.select.hint': 'Select tool — click components to select, drag to move.',
   'tool.wire.hint':
     'Wire — drag from a terminal to another terminal, or click a terminal and click its target. Drop anywhere on an existing wire to attach to it and create a junction.',
+  'tool.hand': 'Hand',
+  'tool.hand.hint':
+    'Hand tool — drag anywhere to pan the canvas. Hold Space with any tool to pan temporarily.',
 
   'sim.enable': 'Enable Simulation',
   'sim.disable': 'Disable Simulation',
@@ -55,6 +59,75 @@ const en: Dict = {
   'example.acLed.name': 'AC Source + LED (Half-Wave)',
   'example.acLed.desc':
     'A 12 Vrms / 50 Hz sinusoid feeds an LED through a series resistor. The LED conducts only while the instantaneous voltage exceeds its forward drop, so it blinks at the line frequency.',
+  'example.digGatesBasic.name': 'Digital: Basic Gates',
+  'example.digGatesBasic.desc':
+    'AND, OR and NOT gates fed by two toggleable logic inputs. Click a logic input on the canvas to flip it and watch each gate output update with its propagation delay.',
+  'example.digUniversal.name': 'Digital: Universal Gates',
+  'example.digUniversal.desc':
+    'NAND, NOR, XOR, XNOR and a buffer on the same two inputs — the universal gates from which every other circuit can be built.',
+  'example.digHalfAdder.name': 'Digital: Half Adder',
+  'example.digHalfAdder.desc':
+    'Sum = A XOR B, Carry = A AND B. Toggle A and B to add two bits.',
+  'example.digFullAdder.name': 'Digital: Full Adder',
+  'example.digFullAdder.desc':
+    'Adds A + B + carry-in with a sum and a carry-out — the building block of every multi-bit adder.',
+  'example.dig4bitAdder.name': 'Digital: 4-Bit Adder',
+  'example.dig4bitAdder.desc':
+    'A 4-bit ripple-carry adder computing 5 + 3 = 8. Each bit is a real electrical pin: change the logic inputs and watch the sum and carry-out update.',
+  'example.digMux.name': 'Digital: 4-to-1 Multiplexer',
+  'example.digMux.desc':
+    'The select lines S1 S0 route one of four data inputs to the output. Unknown select lines propagate X — try disconnecting one.',
+  'example.digDemux.name': 'Digital: 1-to-4 Demultiplexer',
+  'example.digDemux.desc':
+    'The data input is routed to exactly one of four outputs, addressed by the select lines.',
+  'example.digDecoder.name': 'Digital: 3-to-8 Decoder',
+  'example.digDecoder.desc':
+    'Three select lines and an enable: exactly one of eight outputs goes high. Try disabling EN.',
+  'example.digEnc.name': 'Digital: Priority Encoder',
+  'example.digPriorityEncoder.name': 'Digital: Priority Encoder',
+  'example.digEnc.desc':
+    'An 8-to-3 priority encoder: the highest active input wins and the V flag signals that something is active.',
+  'example.digComp.name': 'Digital: 4-Bit Comparator',
+  'example.digComparator.name': 'Digital: 4-Bit Comparator',
+  'example.digComp.desc':
+    'Compares two 4-bit numbers: A > B, A = B or A < B. Defaults compare 5 with 1.',
+  'example.digAlu.name': 'Digital: 4-Bit ALU',
+  'example.digAlu.desc':
+    'A 4-bit arithmetic logic unit with 16 operations (ADD, SUB, AND, OR, XOR, shifts…) selected by OP3..OP0, with carry, zero, negative and overflow flags.',
+  'example.digSrLatch.name': 'Digital: SR Latch',
+  'example.digSrLatch.desc':
+    'The simplest storage element: set it, reset it, hold it. Try S = R = 1 to see the invalid condition produce X.',
+  'example.digDff.name': 'Digital: D Flip-Flop',
+  'example.digDff.desc':
+    'A rising-edge D flip-flop clocked by a 2 Hz clock. The output copies D only on the clock edge.',
+  'example.digJkT.name': 'Digital: JK and T Flip-Flops',
+  'example.digJkTff.name': 'Digital: JK and T Flip-Flops',
+  'example.digJkT.desc':
+    'JK set to toggle mode and a T flip-flop, both clocked from the same source — watch them divide the clock frequency.',
+  'example.digReg.name': 'Digital: 4-Bit Register',
+  'example.digRegister.name': 'Digital: 4-Bit Register',
+  'example.digReg.desc':
+    'A 4-bit register with enable and clock: on each active edge it captures the D inputs.',
+  'example.digShift.name': 'Digital: Shift Register (SIPO)',
+  'example.digShiftRegister.name': 'Digital: Shift Register (SIPO)',
+  'example.digShift.desc':
+    'A serial-in, parallel-out shift register: watch a bit pushed in at SER walk through Q0..Q3 one clock at a time.',
+  'example.digCounter.name': 'Digital: Up/Down Counter',
+  'example.digCounterUpdown.name': 'Digital: Up/Down Counter',
+  'example.digCounter.desc':
+    'A 4-bit binary counter with enable and an U/D control. The RCO output asserts at the terminal count.',
+  'example.digRing.name': 'Digital: Ring and Johnson Counters',
+  'example.digRingCounter.name': 'Digital: Ring and Johnson Counters',
+  'example.digRing.desc':
+    'Two shift-based counters side by side: the ring circulates a single one-hot bit; the Johnson counter shifts with inverted feedback through 8 states.',
+  'example.digBcd7seg.name': 'Digital: BCD to Seven-Segment',
+  'example.digBcdDecoder.name': 'Digital: BCD to Seven-Segment',
+  'example.digBcd7seg.desc':
+    'A BCD decoder drives a real seven-segment display through its segment pins. Segment brightness follows the actual current — the common cathode must be grounded.',
+  'example.digCounterDisplay.name': 'Digital: Counter → Display',
+  'example.digCounterDisplay.desc':
+    'The showcase: a clock drives an up counter, a BCD decoder converts the count, and a seven-segment display shows it — all computed by the hybrid analog/digital engine.',
+
   'example.rcCharge.name': 'RC Charging',
   'example.rcCharge.desc':
     'A 12 V battery charges a 1 µF capacitor through a 1 kΩ resistor (τ = 1 ms). Watch the capacitor voltage follow the exponential charging curve.',
@@ -196,6 +269,39 @@ const en: Dict = {
   'lib.component.currentSource': 'Current Source',
   'lib.component.acMotor': 'AC Motor',
   'lib.component.bjtTransistor': 'Transistor (BJT)',
+  // ---- Digital logic ----
+  'lib.component.and-gate': 'AND Gate',
+  'lib.component.or-gate': 'OR Gate',
+  'lib.component.not-gate': 'NOT Gate',
+  'lib.component.nand-gate': 'NAND Gate',
+  'lib.component.nor-gate': 'NOR Gate',
+  'lib.component.xor-gate': 'XOR Gate',
+  'lib.component.xnor-gate': 'XNOR Gate',
+  'lib.component.buffer-gate': 'Buffer',
+  'lib.component.multiplexer': 'Multiplexer (MUX)',
+  'lib.component.demultiplexer': 'Demultiplexer (DEMUX)',
+  'lib.component.decoder': 'Decoder',
+  'lib.component.encoder': 'Encoder',
+  'lib.component.half-adder': 'Half Adder',
+  'lib.component.full-adder': 'Full Adder',
+  'lib.component.adder': 'Adder (multi-bit)',
+  'lib.component.subtractor': 'Subtractor',
+  'lib.component.comparator': 'Comparator',
+  'lib.component.alu': 'ALU',
+  'lib.component.sr-latch': 'SR Latch',
+  'lib.component.d-latch': 'D Latch',
+  'lib.component.sr-flip-flop': 'SR Flip-Flop',
+  'lib.component.d-flip-flop': 'D Flip-Flop',
+  'lib.component.jk-flip-flop': 'JK Flip-Flop',
+  'lib.component.t-flip-flop': 'T Flip-Flop',
+  'lib.component.register': 'Register',
+  'lib.component.shift-register': 'Shift Register',
+  'lib.component.counter': 'Counter',
+  'lib.component.seven-segment-display': 'Seven-Segment Display',
+  'lib.component.bcd-to-seven-segment-decoder': 'BCD → 7-Segment Decoder',
+  'lib.component.logic-input': 'Logic Input',
+  'lib.component.logic-output': 'Logic Output',
+  'lib.component.clock-generator': 'Clock Generator',
   'lib.dropHint': 'Drag onto the canvas — or click to place at the center.',
 
   'node.label': 'Node',
@@ -204,6 +310,8 @@ const en: Dict = {
   'node.hint': '→ current leaves this node · ← current enters',
   'energy.tau': 'τ',
 
+  'inspector.open': 'Open properties panel',
+  'inspector.close': 'Close properties panel',
   'inspector.title': 'Properties',
   'inspector.collapse': 'Collapse panel',
   'inspector.expand': 'Open panel',
@@ -280,6 +388,7 @@ const en: Dict = {
   'key.escape': 'Cancel / deselect',
   'key.wire': 'Wire item in the library',
   'key.select': 'Select tool',
+  'key.hand': 'Hand tool (pan)',
 
   'common.name': 'Name',
   'common.value': 'Value',
@@ -383,6 +492,9 @@ const en: Dict = {
   'probe.placeVoltage1': 'Voltage probe: click the first measurement point (CH+)',
   'probe.placeVoltage2': 'Voltage probe: click the second measurement point (CH−)',
   'probe.placeCurrent': 'Current probe: click a wire or a component branch',
+  'probe.tapVoltage1': 'Voltage probe: tap the first measurement point (CH+)',
+  'probe.tapVoltage2': 'Voltage probe: tap the second measurement point (CH−)',
+  'probe.tapCurrent': 'Current probe: tap a wire or a component branch',
   'probe.cancel': 'Cancel probe placement',
   'probe.trigger': 'Trigger',
   'probe.triggerLevel': 'Trigger level',
@@ -413,6 +525,11 @@ const en: Dict = {
   'lib.category.semiconductors': 'Semiconductors',
   'lib.category.switches': 'Switches',
   'lib.category.actuators': 'Actuators',
+  'lib.category.digitalGates': 'Logic Gates',
+  'lib.category.digitalCombinational': 'Combinational Logic',
+  'lib.category.digitalSequential': 'Sequential Logic',
+  'lib.category.digitalDisplays': 'Displays',
+  'lib.category.digitalIo': 'Logic I/O & Clock',
   'lib.noResults': 'No components match your search',
   'hud.zoomIn': 'Zoom In',
   'hud.zoomOut': 'Zoom Out',
@@ -425,6 +542,11 @@ const en: Dict = {
   'hud.flowElectron': 'Electron (-)',
   'hud.undo': 'Undo',
   'hud.redo': 'Redo',
+  'hud.hideToolbar': 'Hide canvas toolbar',
+  'hud.showToolbar': 'Show canvas toolbar',
+  'simToolbar.label': 'Simulation & tools toolbar',
+  'simToolbar.hide': 'Hide simulation toolbar',
+  'simToolbar.show': 'Show simulation toolbar',
   'sim.step': 'Single Step',
   'sim.speedPreset': 'Speed Preset',
   'examples.title': 'Templates & Examples',
@@ -440,7 +562,8 @@ const en: Dict = {
   'inspector.vPeak': 'Peak Voltage',
   'inspector.phase': 'Phase',
   'inspector.offset': 'DC Offset',
-  'inspector.close': 'Close Inspector',
+  'sidebar.open': 'Open library panel',
+  'sidebar.close': 'Close library panel',
   'sidebar.toggle': 'Toggle Library',
 
   'zener.title': 'Zener Diode',
@@ -675,6 +798,7 @@ const fa: Dict = {
   'menu.view.zoomOut': 'کوچک‌نمایی',
   'menu.view.resetZoom': 'بازنشانی بزرگ‌نمایی',
   'menu.view.toggleGrid': 'نمایش شبکه',
+  'menu.view.toggleInspector': 'نمایش / پنهان‌کردن پنل ویژگی‌ها',
   'menu.view.toggleTheme': 'تغییر حالت روشن / تاریک',
   'menu.help.shortcuts': 'میان‌برها و درباره برنامه',
 
@@ -683,6 +807,9 @@ const fa: Dict = {
   'tool.select.hint': 'ابزار انتخاب — روی قطعات کلیک کنید و برای جابه‌جایی بکشید.',
   'tool.wire.hint':
     'سیم — از یک پایه بکشید و روی پایه دیگر رها کنید، یا روی پایه کلیک کنید و بعد روی مقصد کلیک کنید. روی هرجای یک سیم موجود رها کنید تا به آن متصل شود و گره (junction) بسازد.',
+  'tool.hand': 'دست',
+  'tool.hand.hint':
+    'ابزار دست — برای جابه‌جایی بوم، هرجا بکشید. با نگه‌داشتن Space و هر ابزاری موقتاً بوم را جابه‌جا کنید.',
 
    'sim.enable': 'فعال‌سازی شبیه‌سازی',
    'sim.disable': 'غیرفعال‌سازی شبیه‌سازی',
@@ -706,6 +833,74 @@ const fa: Dict = {
     'example.acLed.name': 'منبع AC + LED (نیم‌موج)',
     'example.acLed.desc':
       'یک سینوس ۱۲ ولت RMS با فرکانس ۵۰ هرتز از طریق یک مقاومت سری LED را تغذیه می‌کند. LED تنها تا جایی که ولتاژ لحظه‌ای از افت ولتاژ آن بیشتر شود، رسانا است و در نتیجه با فرکانس خط چشمک می‌زند.',
+    'example.digGatesBasic.name': 'دیجیتال: گیت‌های پایه',
+    'example.digGatesBasic.desc':
+    'گیت‌های AND، OR و NOT با دو ورودی منطقی قابل تغییر. روی ورودی منطقی در بوم کلیک کنید تا تغییر کند و خروجی هر گیت را با تأخیر انتشار آن به‌روزرسانی شود.',
+    'example.digUniversal.name': 'دیجیتال: گیت‌های جهانی',
+    'example.digUniversal.desc':
+    'گیت‌های NAND، NOR، XOR، XNOR و بافر روی همان دو ورودی — گیت‌های جهانی که می‌توان هر مداری را با آن‌ها ساخت.',
+    'example.digHalfAdder.name': 'دیجیتال: نیم‌جمع‌کننده',
+    'example.digHalfAdder.desc':
+    'جمع = A XOR B و انتقال = A AND B. A و B را تغییر دهید تا دو بیت جمع شوند.',
+    'example.digFullAdder.name': 'دیجیتال: تمام‌جمع‌کننده',
+    'example.digFullAdder.desc':
+    'جمع A + B + ورودی انتقال با خروجی جمع و انتقال — بلوک سازنده همه جمع‌کننده‌های چندبیتی.',
+    'example.dig4bitAdder.name': 'دیجیتال: جمع‌کننده ۴ بیتی',
+    'example.dig4bitAdder.desc':
+    'یک جمع‌کننده ۴ بیتی با انتقال موجی که ۵ + ۳ = ۸ را محاسبه می‌کند. هر بیت یک پین الکتریکی واقعی است: ورودی‌های منطقی را تغییر دهید و جمع و انتقال را ببینید.',
+    'example.digMux.name': 'دیجیتال: مالتی‌پلکسر ۴ به ۱',
+    'example.digMux.desc':
+    'خطوط انتخاب S1 S0 یکی از چهار ورودی داده را به خروجی هدایت می‌کنند. خطوط انتخاب نامشخص X را منتشر می‌کنند — یکی را جدا کنید.',
+    'example.digDemux.name': 'دیجیتال: دمالتی‌پلکسر ۱ به ۴',
+    'example.digDemux.desc':
+    'ورودی داده دقیقاً به یکی از چهار خروجی هدایت می‌شود که با خطوط انتخاب آدرس‌دهی می‌شود.',
+    'example.digDecoder.name': 'دیجیتال: رمزگشای ۳ به ۸',
+    'example.digDecoder.desc':
+    'سه خط انتخاب و یک فعال‌ساز: دقیقاً یکی از هشت خروجی HIGH می‌شود. غیرفعال کردن EN را امتحان کنید.',
+    'example.digEnc.name': 'دیجیتال: رمزگذار اولویت‌دار',
+    'example.digPriorityEncoder.name': 'دیجیتال: رمزگذار اولویت‌دار',
+    'example.digEnc.desc':
+    'رمزگذار ۸ به ۳ با اولویت: بالاترین ورودی فعال برنده می‌شود و پرچم V فعال بودن ورودی را نشان می‌دهد.',
+    'example.digComp.name': 'دیجیتال: مقایسه‌کننده ۴ بیتی',
+    'example.digComparator.name': 'دیجیتال: مقایسه‌کننده ۴ بیتی',
+    'example.digComp.desc':
+    'مقایسه دو عدد ۴ بیتی: A > B، A = B یا A < B. مقدار پیش‌فرض ۵ و ۱ را مقایسه می‌کند.',
+    'example.digAlu.name': 'دیجیتال: ALU ۴ بیتی',
+    'example.digAlu.desc':
+    'واحد محاسبه و منطق ۴ بیتی با ۱۶ عملیات (ADD، SUB، AND، OR، XOR، شیفت و…) انتخاب‌شده با OP3..OP0 و پرچم‌های انتقال، صفر، منفی و سرریز.',
+    'example.digSrLatch.name': 'دیجیتال: سنسور SR',
+    'example.digSrLatch.desc':
+    'ساده‌ترین عنصر ذخیره‌سازی: ست، ریست و نگه‌داری. S = R = 1 را امتحان کنید تا شرایط نامعتبر X تولید کند.',
+    'example.digDff.name': 'دیجیتال: فلیپ‌فلاپ D',
+    'example.digDff.desc':
+    'یک فلیپ‌فلاپ D با لبه بالارونده و کلاک ۲ هرتز. خروجی فقط در لبه کلاک از D کپی می‌شود.',
+    'example.digJkT.name': 'دیجیتال: فلیپ‌فلاپ JK و T',
+    'example.digJkTff.name': 'دیجیتال: فلیپ‌فلاپ JK و T',
+    'example.digJkT.desc':
+    'JK در حالت تاگل و یک فلیپ‌فلاپ T که هر دو از یک منبع کلاک می‌گیرند — تقسیم فرکانس کلاک را ببینید.',
+    'example.digReg.name': 'دیجیتال: ثبات ۴ بیتی',
+    'example.digRegister.name': 'دیجیتال: ثبات ۴ بیتی',
+    'example.digReg.desc':
+    'یک ثبات ۴ بیتی با فعال‌ساز و کلاک: در هر لبه فعال، ورودی‌های D را ذخیره می‌کند.',
+    'example.digShift.name': 'دیجیتال: ثبات انتقالی (SIPO)',
+    'example.digShiftRegister.name': 'دیجیتال: ثبات انتقالی (SIPO)',
+    'example.digShift.desc':
+    'ثبات انتقالی ورودی سری/خروجی موازی: بیت ورودی از SER را ببینید که با هر کلاک در Q0..Q3 جلو می‌رود.',
+    'example.digCounter.name': 'دیجیتال: شمارنده بالا/پایین',
+    'example.digCounterUpdown.name': 'دیجیتال: شمارنده بالا/پایین',
+    'example.digCounter.desc':
+    'یک شمارنده باینری ۴ بیتی با فعال‌ساز و کنترل U/D. خروجی RCO در شمارش نهایی فعال می‌شود.',
+    'example.digRing.name': 'دیجیتال: شمارنده حلقوی و جانسون',
+    'example.digRingCounter.name': 'دیجیتال: شمارنده حلقوی و جانسون',
+    'example.digRing.desc':
+    'دو شمارنده شیافتی کنار هم: حلقوی یک بیت one-hot را می‌چرخاند و جانسون با بازخورد معکوس در ۸ حالت می‌چرخد.',
+    'example.digBcd7seg.name': 'دیجیتال: BCD به هفت‌قسمتی',
+    'example.digBcdDecoder.name': 'دیجیتال: BCD به هفت‌قسمتی',
+    'example.digBcd7seg.desc':
+    'رمزگشای BCD یک نمایشگر هفت‌قسمتی واقعی را از طریق پین‌های قطعاتش راه‌اندازی می‌کند. روشنایی قطعه از جریان واقعی پیروی می‌کند — کاتد مشترک باید زمین شود.',
+    'example.digCounterDisplay.name': 'دیجیتال: شمارنده → نمایشگر',
+    'example.digCounterDisplay.desc':
+    'نمایش اصلی: یک کلاک شمارنده صعودی را می‌راند، رمزگشای BCD شمارش را تبدیل می‌کند و نمایشگر هفت‌قسمتی آن را نشان می‌دهد — همه توسط موتور ترکیبی آنالوگ/دیجیتال محاسبه می‌شود.',
     'example.rcCharge.name': 'شارژ خازن RC',
     'example.rcCharge.desc':
       'یک باتری ۱۲ ولتی یک خازن ۱ میکروفاراد را از طریق مقاومت ۱ کیلو‌اوم شارژ می‌کند (τ = ۱ میلی‌ثانیه). ولتاژ خازن را در حال طی کردن منحنی نمایی شارژ ببینید.',
@@ -843,6 +1038,39 @@ const fa: Dict = {
   'lib.component.currentSource': 'منبع جریان',
   'lib.component.acMotor': 'موتور متناوب (AC)',
   'lib.component.bjtTransistor': 'ترانزیستور (BJT)',
+  // ---- Digital logic ----
+  'lib.component.and-gate': 'گیت AND',
+  'lib.component.or-gate': 'گیت OR',
+  'lib.component.not-gate': 'گیت NOT',
+  'lib.component.nand-gate': 'گیت NAND',
+  'lib.component.nor-gate': 'گیت NOR',
+  'lib.component.xor-gate': 'گیت XOR',
+  'lib.component.xnor-gate': 'گیت XNOR',
+  'lib.component.buffer-gate': 'بافر',
+  'lib.component.multiplexer': 'مالتی‌پلکسر (MUX)',
+  'lib.component.demultiplexer': 'دمالتی‌پلکسر (DEMUX)',
+  'lib.component.decoder': 'رمزگشا',
+  'lib.component.encoder': 'رمزگذار',
+  'lib.component.half-adder': 'نیم‌جمع‌کننده',
+  'lib.component.full-adder': 'تمام‌جمع‌کننده',
+  'lib.component.adder': 'جمع‌کننده (چند بیتی)',
+  'lib.component.subtractor': 'تفریق‌کننده',
+  'lib.component.comparator': 'مقایسه‌کننده',
+  'lib.component.alu': 'واحد محاسبه و منطق (ALU)',
+  'lib.component.sr-latch': 'سنسور SR',
+  'lib.component.d-latch': 'سنسور D',
+  'lib.component.sr-flip-flop': 'فلیپ‌فلاپ SR',
+  'lib.component.d-flip-flop': 'فلیپ‌فلاپ D',
+  'lib.component.jk-flip-flop': 'فلیپ‌فلاپ JK',
+  'lib.component.t-flip-flop': 'فلیپ‌فلاپ T',
+  'lib.component.register': 'ثبات',
+  'lib.component.shift-register': 'ثبات انتقالی',
+  'lib.component.counter': 'شمارنده',
+  'lib.component.seven-segment-display': 'نمایشگر هفت‌قسمتی',
+  'lib.component.bcd-to-seven-segment-decoder': 'رمزگشای BCD به هفت‌قسمتی',
+  'lib.component.logic-input': 'ورودی منطقی',
+  'lib.component.logic-output': 'خروجی منطقی',
+  'lib.component.clock-generator': 'مولد کلاک',
   'lib.dropHint': 'به بوم بکشید — یا برای قرار دادن در مرکز کلیک کنید.',
 
   'node.label': 'گره',
@@ -851,6 +1079,8 @@ const fa: Dict = {
   'node.hint': '→ جریان از این گره خارج می‌شود · ← جریان وارد می‌شود',
   'energy.tau': 'τ',
 
+  'inspector.open': 'بازکردن پنل ویژگی‌ها',
+  'inspector.close': 'بستن پنل ویژگی‌ها',
   'inspector.title': 'ویژگی‌ها',
   'inspector.collapse': 'بستن پنل',
   'inspector.expand': 'باز کردن پنل',
@@ -926,6 +1156,7 @@ const fa: Dict = {
   'key.escape': 'لغو / رفع انتخاب',
   'key.wire': 'آیتم «سیم» در کتابخانه',
   'key.select': 'ابزار انتخاب',
+  'key.hand': 'ابزار دست (جابه‌جایی)',
 
   'common.name': 'نام',
   'common.value': 'مقدار',
@@ -1022,6 +1253,9 @@ const fa: Dict = {
   'probe.placeVoltage1': 'پروب ولتاژ: نقطه اندازه‌گیری اول (CH+) را کلیک کنید',
   'probe.placeVoltage2': 'پروب ولتاژ: نقطه اندازه‌گیری دوم (CH−) را کلیک کنید',
   'probe.placeCurrent': 'پروب جریان: یک سیم یا شاخه مدار را کلیک کنید',
+  'probe.tapVoltage1': 'پروب ولتاژ: نقطه اندازه‌گیری اول (CH+) را لمس کنید',
+  'probe.tapVoltage2': 'پروب ولتاژ: نقطه اندازه‌گیری دوم (CH−) را لمس کنید',
+  'probe.tapCurrent': 'پروب جریان: برای اندازه‌گیری جریان روی سیم یا قطعه بزنید',
   'probe.cancel': 'لغو قراردادن پروب',
   'probe.trigger': 'تریگر',
   'probe.triggerLevel': 'سطح تریگر',
@@ -1052,6 +1286,11 @@ const fa: Dict = {
   'lib.category.semiconductors': 'نیمه‌هادی‌ها',
   'lib.category.switches': 'کلیدها',
   'lib.category.actuators': 'محرک‌ها',
+  'lib.category.digitalGates': 'گیت‌های منطقی',
+  'lib.category.digitalCombinational': 'منطق ترکیبی',
+  'lib.category.digitalSequential': 'منطق ترتیبی',
+  'lib.category.digitalDisplays': 'نمایشگرها',
+  'lib.category.digitalIo': 'ورودی/خروجی منطقی و کلاک',
   'lib.noResults': 'قطعه‌ای مطابق با جستجو پیدا نشد',
   'hud.zoomIn': 'بزرگ‌نمایی',
   'hud.zoomOut': 'کوچک‌نمایی',
@@ -1064,6 +1303,11 @@ const fa: Dict = {
   'hud.flowElectron': 'الکترونی (-)',
   'hud.undo': 'بازگردانی',
   'hud.redo': 'بازانجام',
+  'hud.hideToolbar': 'پنهان‌کردن نوار ابزار بوم',
+  'hud.showToolbar': 'نمایش نوار ابزار بوم',
+  'simToolbar.label': 'نوار شبیه‌سازی و ابزارها',
+  'simToolbar.hide': 'پنهان‌کردن نوار شبیه‌سازی',
+  'simToolbar.show': 'نمایش نوار شبیه‌سازی',
   'sim.step': 'تک‌گام',
   'sim.speedPreset': 'تنظیم سرعت',
   'examples.title': 'مدارهای نمونه و الگوها',
@@ -1079,7 +1323,8 @@ const fa: Dict = {
   'inspector.vPeak': 'ولتاژ اوج',
   'inspector.phase': 'فاز',
   'inspector.offset': 'آفست DC',
-  'inspector.close': 'بستن پنل بازرس',
+  'sidebar.open': 'بازکردن پنل کتابخانه',
+  'sidebar.close': 'بستن پنل کتابخانه',
   'sidebar.toggle': 'تغییر وضعیت کتابخانه',
 
   'zener.title': 'دیود زنر',

@@ -33,6 +33,39 @@ const COMPONENT_TYPES = new Set([
   'zenerDiode',
   'bjtTransistor',
   'zener-diode',
+  // Digital logic
+  'and-gate',
+  'or-gate',
+  'not-gate',
+  'nand-gate',
+  'nor-gate',
+  'xor-gate',
+  'xnor-gate',
+  'buffer-gate',
+  'multiplexer',
+  'demultiplexer',
+  'decoder',
+  'encoder',
+  'half-adder',
+  'full-adder',
+  'adder',
+  'subtractor',
+  'comparator',
+  'alu',
+  'sr-latch',
+  'd-latch',
+  'sr-flip-flop',
+  'd-flip-flop',
+  'jk-flip-flop',
+  't-flip-flop',
+  'register',
+  'shift-register',
+  'counter',
+  'seven-segment-display',
+  'bcd-to-seven-segment-decoder',
+  'logic-input',
+  'logic-output',
+  'clock-generator',
 ]);
 
 /** Optional numeric component fields preserved through import/export. */
@@ -89,6 +122,12 @@ const NUMERIC_FIELDS = [
   'icMax',
   'nominalTemp',
   'betaTempCoeff',
+  // Digital logic
+  'vcc',
+  'tpd',
+  'width',
+  'inputCount',
+  'dutyCycle',
 ] as const;
 
 /** Optional string component fields preserved through import/export. */
@@ -104,6 +143,13 @@ const STRING_FIELDS = [
   'manufacturer',
   'partNumber',
   'description',
+  // Digital logic
+  'logicFamily',
+  'counterMode',
+  'shiftMode',
+  'shiftDirection',
+  'edge',
+  'commonType',
 ] as const;
 
 /** Optional boolean component fields preserved through import/export. */
@@ -111,6 +157,12 @@ const BOOLEAN_FIELDS = [
   'dynamicThermal',
   'mirrored',
   'initialConditionEnabled',
+  // Digital logic
+  'activeLow',
+  'priority',
+  'signed',
+  'hexMode',
+  'enabled',
 ] as const;
 
 /**

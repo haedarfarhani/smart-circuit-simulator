@@ -21,6 +21,29 @@ import {
   isCapacitorType,
   type CapacitorSolution,
 } from './capacitorModel';
+import { isDigitalType, isDigitalDeviceType, isSevenSegmentType, resolveDigitalCompParams } from './digital/types';
+import {
+  buildDigitalComponentSolution,
+  buildSevenSegSolution,
+  digitalPinCurrents,
+  isDigitalStamped,
+  resolveCompDigitalParams,
+  sevenSegConduction,
+  sevenSegForwardVoltage,
+  sevenSegSegmentCurrents,
+  stampDigitalComponent,
+  stampSevenSeg,
+} from './digital/stamping';
+import {
+  createDigitalSimState,
+  ensureRuntimes,
+  evaluateDigitalStatic,
+  type DigitalSimState,
+} from './digital/kernel';
+
+/** Virtual 0 V reference for groundless pure-digital circuits (see the
+ * transient engine for the full rationale). */
+const VIRTUAL_DIGITAL_GROUND = '__digital_rail__';
 
 /**
  * Instantaneous AC voltage from a real sinusoidal source.
@@ -45,7 +68,7 @@ export function acPeakFromRms(vrms: number): number {
   return vrms * Math.SQRT2;
 }
 
-import { terminalWorld } from './geometry';
+import { terminalWorld, allTerminals } from './geometry';
 import { resolveEnd } from './wirePath';
 import { acFrequencies, hasAcSource, phasorAngle, phasorMag, solveAcSteadyState } from './acSolver';
 import type { AcSolution } from './acSolver';
@@ -59,6 +82,8 @@ export interface SolverResult {
   error?: string;
   /** set when the circuit was solved in the frequency domain */
   frequencies?: number[];
+  /** warnings produced by the digital kernel during the solve */
+  digitalWarnings?: string[];
 }
 
 export interface ComponentSolution {
@@ -99,6 +124,10 @@ export interface ComponentSolution {
   bjt?: BjtSolution;
   /** Per-terminal currents, positive into the device (BJT) */
   terminalCurrents?: number[];
+  /** Digital device state (logic values, sequential bits, power estimate) */
+  digital?: import('./digital/stamping').DigitalSolution;
+  /** Seven-segment display electrical state (per-segment brightness) */
+  sevenSeg?: import('./digital/stamping').SevenSegSolution;
 }
 
 export interface CircuitTopology {
@@ -153,6 +182,13 @@ export interface ComponentInfo {
   leakageResistance?: number;
   /** Third node for 3-terminal components (BJT) */
   nodeC?: string;
+  /**
+   * Every terminal's node id, in terminal (pin) order. Present for ALL
+   * components — multi-pin digital devices index this array by pin.
+   */
+  nodes: string[];
+  /** Resolved digital parameters (digital component types only) */
+  digital?: import('./digital/types').DigitalCompParams;
 }
 
 const GRID = 10;
@@ -223,13 +259,11 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
   let groundNode = '';
   let nodeCounter = 0;
 
+  // Every terminal of every component joins the union-find — the loop no
+  // longer assumes two terminals plus the BJT's third.
   for (const comp of doc.components) {
-    const t0 = terminalWorld(comp, 0);
-    uf.ensure(t0.x, t0.y);
-    if (comp.type !== 'ground') {
-      const t1 = terminalWorld(comp, 1);
-      uf.ensure(t1.x, t1.y);
-    }
+    const terminals = allTerminals(comp);
+    for (const t of terminals) uf.ensure(t.x, t.y);
   }
 
   const wireKeys = new Set<string>();
@@ -274,38 +308,28 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
   }
 
   for (const comp of doc.components) {
-    const t0 = terminalWorld(comp, 0);
-    const k0 = nodeKey(t0.x, t0.y);
-    const nodeId0 = keyToNode.get(k0);
+    const terminals = allTerminals(comp);
+    const nodeIdsForPins = terminals.map((t) => {
+      const k = nodeKey(t.x, t.y);
+      return keyToNode.get(k) ?? '';
+    });
 
     if (comp.type === 'ground') {
-      if (nodeId0) {
-        groundNode = nodeId0;
-        nodes.get(nodeId0)!.connectedComponents.push(comp.id);
+      if (nodeIdsForPins[0]) {
+        groundNode = nodeIdsForPins[0];
+        nodes.get(groundNode)!.connectedComponents.push(comp.id);
       }
       continue;
     }
 
-    const t1 = terminalWorld(comp, 1);
-    const k1 = nodeKey(t1.x, t1.y);
-    const nodeId1 = keyToNode.get(k1);
+    const nodeA = nodeIdsForPins[0] ?? '';
+    const nodeB = nodeIdsForPins[1] ?? '';
+    // Third pin (BJT collector/emitter layout) — kept for the analog solver.
+    const nodeC = nodeIdsForPins[2] ?? '';
 
-    let nodeA = nodeId0 ?? '';
-    let nodeB = nodeId1 ?? '';
-    let nodeC = '';
-
-    // 3-terminal components (BJT)
-    if (comp.type === 'bjtTransistor') {
-      const t2 = terminalWorld(comp, 2);
-      const k2 = nodeKey(t2.x, t2.y);
-      const nodeId2 = keyToNode.get(k2);
-      nodeC = nodeId2 ?? '';
-      // Map terminals: index 0 = Base (B), 1 = Collector (C), 2 = Emitter (E)
+    for (const n of nodeIdsForPins) {
+      if (n) nodes.get(n)!.connectedComponents.push(comp.id);
     }
-
-    if (nodeA) nodes.get(nodeA)!.connectedComponents.push(comp.id);
-    if (nodeB) nodes.get(nodeB)!.connectedComponents.push(comp.id);
-    if (nodeC) nodes.get(nodeC)!.connectedComponents.push(comp.id);
 
     const isVoltageSource = comp.type === 'battery' || comp.type === 'acVoltageSource';
     const isCurrentSource = comp.type === 'currentSource';
@@ -316,6 +340,7 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       nodeA,
       nodeB,
       nodeC,
+      nodes: nodeIdsForPins,
       voltageSource: isVoltageSource,
       currentSource: isCurrentSource,
       frequency: comp.frequency,
@@ -341,6 +366,9 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       preset: comp.preset,
       esr: comp.esr,
       leakageResistance: comp.leakageResistance,
+      digital: isDigitalType(comp.type)
+        ? resolveDigitalCompParams(comp)
+        : undefined,
     });
   }
 
@@ -369,8 +397,12 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
 function solveDC(
   doc: CircuitDoc,
   topology: CircuitTopology,
-  /** sources forced to 0 V â€” the AC part of a superposition solve */
+  /** sources forced to 0 V — the AC part of a superposition solve */
   zeroSourceIds?: Set<string>,
+  /** internal: digital voltage-feedback pass counter */
+  _digitalPass = 0,
+  /** internal: digital runtimes carried across feedback passes */
+  _digitalSim?: DigitalSimState,
 ): SolverResult {
   const { nodes, components, groundNode } = topology;
   // lamps are rated against the supply they are connected to
@@ -385,15 +417,22 @@ function solveDC(
   // Only include nodes that are actually connected to components
   const connectedNodeIds = new Set<string>();
   for (const c of components) {
-    if (c.nodeA) connectedNodeIds.add(c.nodeA);
-    if (c.nodeB) connectedNodeIds.add(c.nodeB);
-    if (c.nodeC) connectedNodeIds.add(c.nodeC);
+    for (const n of c.nodes) {
+      if (n) connectedNodeIds.add(n);
+    }
   }
 
-  // Pick an active ground node if existing groundNode has no components
+  // Pick an active ground node if existing groundNode has no components.
+  // A pure-digital circuit (implicit supply, no ground component) gets a
+  // virtual reference so no logic node is clamped to 0 V.
   let effectiveGround = groundNode;
-  if (!connectedNodeIds.has(effectiveGround) && connectedNodeIds.size > 0) {
-    effectiveGround = connectedNodeIds.values().next().value!;
+  const hasUserGround = doc.components.some((c) => c.type === 'ground');
+  if (!hasUserGround && connectedNodeIds.size > 0) {
+    if (components.every((c) => isDigitalStamped(c.type))) {
+      effectiveGround = VIRTUAL_DIGITAL_GROUND;
+    } else {
+      effectiveGround = connectedNodeIds.values().next().value!;
+    }
   }
 
   if (!effectiveGround || connectedNodeIds.size === 0) {
@@ -413,7 +452,8 @@ function solveDC(
   const voltageSources = components.filter((c) => c.voltageSource);
   const currentSources = components.filter((c) => c.currentSource);
 
-  // Capacitors are open at DC
+  // Capacitors are open at DC; digital devices are stamped separately by
+  // the digital kernel bridge (Norton outputs + family input loads).
   const linearResistors = components.filter(
     (c) =>
       !c.voltageSource &&
@@ -422,7 +462,8 @@ function solveDC(
       c.type !== 'diode' &&
       c.type !== 'led' &&
       c.type !== 'bjtTransistor' &&
-      !isZenerDiode(c.type),
+      !isZenerDiode(c.type) &&
+      !isDigitalType(c.type),
   );
   const diodes = components.filter((c) => c.type === 'diode' || c.type === 'led');
   const zeners = components.filter((c) => isZenerDiode(c.type));
@@ -459,6 +500,14 @@ function solveDC(
   const nodeIndex = new Map<string, number>();
   nodeList.forEach((node, i) => nodeIndex.set(node.id, i));
 
+  /** Solution vector → node-voltage map (used mid-iteration too). */
+  const nodeVoltagesFrom = (sol: number[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    m.set(effectiveGround, 0);
+    nodeList.forEach((node, i) => m.set(node.id, sol[i]));
+    return m;
+  };
+
   const vsIndex = new Map<string, number>();
   voltageSources.forEach((vs, i) => vsIndex.set(vs.id, numNodes + i));
 
@@ -485,6 +534,25 @@ function solveDC(
       vd: 0,
       tj: params.ambientTemp,
     });
+  }
+
+  // ---- Digital devices: static operating point ---------------------------
+  // Sequential devices hold their reset state; combinational logic settles
+  // through the kernel's unit-delay iterations. Outputs are Norton-stamped
+  // below and re-evaluated against the solved voltages (feedback passes).
+  // The runtimes survive across passes so the iteration converges instead
+  // of restarting from the no-voltage state every pass.
+  const digitalSim: DigitalSimState = _digitalSim ?? createDigitalSimState();
+  const digitalFresh = _digitalSim === undefined;
+  ensureRuntimes(doc, digitalSim);
+  const digitalComps = components.filter((c) => isDigitalStamped(c.type));
+  if (digitalComps.length > 0 && digitalFresh) {
+    evaluateDigitalStatic(doc, topology, digitalSim, null, 1e-6);
+  }
+  const sevenSegComps = components.filter((c) => isSevenSegmentType(c.type));
+  const sevenSegConducting = new Map<string, boolean[]>();
+  for (const s of sevenSegComps) {
+    sevenSegConducting.set(s.id, new Array(8).fill(false));
   }
 
   let finalSolution: number[] | null = null;
@@ -627,11 +695,32 @@ function solveDC(
       I[vsIdx] = zeroSourceIds?.has(vs.id) ? 0 : vs.value;
     }
 
+    // ---- Digital device Norton stamps + seven-segment diodes ----
+    for (const dc of digitalComps) {
+      const docComp = doc.components.find((c) => c.id === dc.id);
+      if (!docComp) continue;
+      if (isSevenSegmentType(dc.type)) {
+        stampSevenSeg(G, I, nodeIndex, docComp, dc.nodes, sevenSegConducting.get(dc.id)!);
+        continue;
+      }
+      const runtime = digitalSim.runtimes.get(dc.id);
+      if (!runtime) continue;
+      stampDigitalComponent(
+        G, I, nodeIndex, docComp, dc.nodes, runtime,
+        resolveCompDigitalParams(docComp), 1e-6, null,
+      );
+    }
+
     const sol = solveLinearSystem(G, I);
     if (!sol) break;
     finalSolution = sol;
 
-    if (diodes.length === 0 && zeners.length === 0 && bjts.length === 0) break;
+    if (
+      diodes.length === 0 &&
+      zeners.length === 0 &&
+      bjts.length === 0 &&
+      digitalComps.length === 0
+    ) break;
 
     // Check nonlinear device convergence
     let changed = false;
@@ -686,6 +775,19 @@ function solveDC(
       st.vbc = nextVbc;
     }
 
+    for (const s of sevenSegComps) {
+      const docComp = doc.components.find((c) => c.id === s.id);
+      if (!docComp) continue;
+      const next = sevenSegConduction(docComp, nodeVoltagesFrom(sol), s.nodes, sevenSegConducting.get(s.id)!);
+      const prevArr = sevenSegConducting.get(s.id)!;
+      for (let i = 0; i < 8; i++) {
+        if (next[i] !== prevArr[i]) {
+          prevArr[i] = next[i];
+          changed = true;
+        }
+      }
+    }
+
     if (!changed) break;
   }
 
@@ -705,6 +807,17 @@ function solveDC(
   nodeVoltages.set(effectiveGround, 0);
   nodeList.forEach((node, i) => nodeVoltages.set(node.id, solution[i]));
 
+  // ---- Digital feedback pass: re-evaluate with the solved voltages and
+  // restart the solve if the logic levels moved (gates driving gates
+  // through analog elements). Two feedback passes bound the iteration. ----
+  if (digitalComps.length > 0 && _digitalPass < 2) {
+    const before = digitalOutputsSnapshot(digitalSim);
+    evaluateDigitalStatic(doc, topology, digitalSim, nodeVoltages, 1e-6);
+    if (digitalOutputsSnapshot(digitalSim) !== before) {
+      return solveDC(doc, topology, zeroSourceIds, _digitalPass + 1, digitalSim);
+    }
+  }
+
   const branchCurrents = new Map<string, number>();
   voltageSources.forEach((vs, i) => {
     branchCurrents.set(vs.id, solution[numNodes + i]);
@@ -712,6 +825,13 @@ function solveDC(
 
   const componentData = new Map<string, ComponentSolution>();
   for (const comp of components) {
+    // Digital / display extras collected in the branch below, attached to
+    // the solution object after its construction.
+    let digitalTerminalCurrents: number[] | undefined;
+    let digitalExtra: import('./digital/stamping').DigitalSolution | undefined;
+    let sevenSegExtra: import('./digital/stamping').SevenSegSolution | undefined;
+    let sevenSegPower = 0;
+
     const vA = nodeVoltages.get(comp.nodeA) ?? 0;
     const vB = nodeVoltages.get(comp.nodeB) ?? 0;
     const voltage = vA - vB;
@@ -754,6 +874,33 @@ function solveDC(
     } else if (comp.type === 'lamp') {
       const r = resistanceOf(comp);
       current = Number.isFinite(r) && r > 0 ? voltage / r : 0;
+    } else if (isDigitalDeviceType(comp.type)) {
+      // Multi-pin device: the meaningful readouts live in `solution.digital`.
+      const docComp = doc.components.find((c) => c.id === comp.id);
+      const runtime = digitalSim.runtimes.get(comp.id);
+      if (runtime && docComp) {
+        const res = resolveCompDigitalParams(docComp);
+        digitalTerminalCurrents = digitalPinCurrents(
+          docComp, runtime, res, nodeVoltages, null, comp.nodes, 1e-6,
+        );
+        current = digitalTerminalCurrents.reduce((a, b) => a + b, 0);
+        digitalExtra = buildDigitalComponentSolution(
+          docComp, runtime, doc.components, components, nodeVoltages, comp.nodes,
+        );
+      }
+    } else if (isSevenSegmentType(comp.type)) {
+      const docComp = doc.components.find((c) => c.id === comp.id);
+      const conducting = sevenSegConducting.get(comp.id) ?? new Array(8).fill(false);
+      const segCurrents = docComp
+        ? sevenSegSegmentCurrents(docComp, nodeVoltages, comp.nodes, conducting)
+        : new Array(8).fill(0);
+      digitalTerminalCurrents = segCurrents;
+      current = segCurrents.reduce((a, b) => a + b, 0);
+      if (docComp) {
+        sevenSegExtra = buildSevenSegSolution(docComp, segCurrents, conducting);
+        sevenSegPower = segCurrents.reduce((a, b) => a + Math.abs(b), 0) *
+          sevenSegForwardVoltage(docComp);
+      }
     } else if (comp.type === 'bjtTransistor') {
       const vB = nodeVoltages.get(comp.nodeA) ?? 0;
       const vC = nodeVoltages.get(comp.nodeB) ?? 0;
@@ -792,6 +939,17 @@ function solveDC(
       power,
       currentDirection: current >= 0 ? 1 : -1,
     };
+    if (digitalTerminalCurrents) solution.terminalCurrents = digitalTerminalCurrents;
+    if (digitalExtra) {
+      solution.digital = digitalExtra;
+      // The meaningful "power" of a multi-pin device is its estimated
+      // supply power, not V×I of pins 0-1.
+      solution.power = digitalExtra.power;
+    }
+    if (sevenSegExtra) {
+      solution.sevenSeg = sevenSegExtra;
+      solution.power = sevenSegPower;
+    }
 
     // A capacitor is open at DC, but it still holds whatever charge the
     // operating point leaves across it, so Q, E and the polarity state are
@@ -821,6 +979,8 @@ function solveDC(
     componentData,
     wireCurrents,
     isValid: true,
+    digitalWarnings:
+      digitalSim.activeWarnings.length > 0 ? digitalSim.activeWarnings : undefined,
   };
 }
 
@@ -839,9 +999,9 @@ function computeWireCurrents(
 
   const termNode = new Map<string, string>();
   for (const comp of components) {
-    if (comp.nodeA) termNode.set(`${comp.id}:0`, comp.nodeA);
-    if (comp.nodeB) termNode.set(`${comp.id}:1`, comp.nodeB);
-    if (comp.nodeC) termNode.set(`${comp.id}:2`, comp.nodeC);
+    comp.nodes.forEach((n, i) => {
+      if (n) termNode.set(`${comp.id}:${i}`, n);
+    });
   }
   // Map ground terminal
   for (const comp of doc.components) {
@@ -966,6 +1126,15 @@ function computeWireCurrents(
   }
 
   return wireCurrents;
+}
+
+/** Stable snapshot of every digital device's output states. */
+function digitalOutputsSnapshot(sim: DigitalSimState): string {
+  let s = '';
+  for (const [id, r] of [...sim.runtimes.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    s += `${id}:${r.outputs.join('')}|`;
+  }
+  return s;
 }
 
 function findNodeKey(

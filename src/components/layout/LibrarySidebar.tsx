@@ -3,6 +3,8 @@ import { makeT } from '../../i18n';
 import { useCircuitStore } from '../../store/circuitStore';
 import { useUiStore } from '../../store/uiStore';
 import { CATEGORIES, SYMBOLS, switchLever } from '../../core/symbols';
+import { isDigitalType } from '../../core/digital/types';
+import { digitalBodyFor, syntheticDigitalComp } from '../../core/digitalSymbols';
 import type { ComponentType } from '../../models/circuit';
 
 /** Uniform preview window so every symbol renders at the same world scale. */
@@ -18,7 +20,7 @@ function SymbolPreview({ type }: { type: ComponentType }) {
       aria-hidden="true"
     >
       <g className="sym-group" style={{ color: 'inherit' }}>
-        {def.body}
+        {isDigitalType(type) ? digitalBodyFor(syntheticDigitalComp(type)) : def.body}
         {type === 'switch' && switchLever(false)}
       </g>
     </svg>
@@ -80,6 +82,13 @@ function LibraryItem({ type }: { type: ComponentType }) {
     if (id) {
       select([id]);
       setStatus('status.placed');
+      // On compact breakpoints the properties sheet is overlay-driven: swap
+      // the library drawer for the properties sheet of the part just placed,
+      // so the user lands back on the canvas instead of stacking two sheets.
+      const uiNow = useUiStore.getState();
+      if (uiNow.breakpoint === 'tablet' || uiNow.breakpoint === 'mobile') {
+        uiNow.setOverlay('inspector');
+      }
     }
   };
 
@@ -193,26 +202,16 @@ export function LibrarySidebar() {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const overlay = useUiStore((s) => s.overlay);
+  const breakpoint = useUiStore((s) => s.breakpoint);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const favoriteTypes = useUiStore((s) => s.favoriteTypes);
   const recentTypes = useUiStore((s) => s.recentTypes);
 
-  if (collapsed) {
-    return (
-      <aside className="library is-collapsed">
-        <button
-          type="button"
-          className="lib-expand-btn"
-          title={t('sidebar.toggle')}
-          onClick={toggleSidebar}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4 2.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-11z" />
-          </svg>
-        </button>
-      </aside>
-    );
-  }
+  // Compact breakpoints open the drawer through the overlay state; the
+  // desktop floating panel follows the collapsed preference.
+  const compact = breakpoint === 'tablet' || breakpoint === 'mobile';
+  const open = compact ? overlay === 'library' : !collapsed;
 
   const allTypes = Object.keys(SYMBOLS) as ComponentType[];
   const normalizedSearch = search.trim().toLowerCase();
@@ -234,11 +233,7 @@ export function LibrarySidebar() {
 
   const categoryChips = [
     { id: 'all', label: t('lib.category.all') },
-    { id: 'sources', label: t('lib.category.sources') },
-    { id: 'passive', label: t('lib.category.passive') },
-    { id: 'semiconductors', label: t('lib.category.semiconductors') },
-    { id: 'switches', label: t('lib.category.switches') },
-    { id: 'actuators', label: t('lib.category.actuators') },
+    ...CATEGORIES.map((c) => ({ id: c.id as string, label: t(c.labelKey) })),
   ];
 
   // persisted prefs are plain strings — keep only types that still exist
@@ -250,7 +245,24 @@ export function LibrarySidebar() {
   ) as ComponentType[];
 
   return (
-    <aside className="library" aria-label={t('lib.title')}>
+    <>
+      {/* Floating edge toggle: visible at every breakpoint. On compact it
+          drives the drawer overlay and fades out while the drawer is open. */}
+      <button
+        type="button"
+        className="edge-toggle edge-toggle-start"
+        data-open={open}
+        aria-pressed={open}
+        title={open ? t('sidebar.close') : t('sidebar.open')}
+        aria-label={open ? t('sidebar.close') : t('sidebar.open')}
+        onClick={toggleSidebar}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m6 3 5 5-5 5" />
+        </svg>
+      </button>
+
+      <aside className="library" data-open={open} aria-label={t('lib.title')}>
       <div className="library-header">
         <div className="library-title-row">
           <div className="library-heading">
@@ -387,6 +399,7 @@ export function LibrarySidebar() {
         </svg>
         <span>{t('lib.dropHint')}</span>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

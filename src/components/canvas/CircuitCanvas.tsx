@@ -17,7 +17,11 @@ import {
 } from '../../store/uiStore';
 import { SYMBOLS, switchLever, RESISTOR_BODY, bjtBody, LEAD_LEN } from '../../core/symbols';
 import { isZenerDiode } from '../../core/zenerModel';
-import { componentBounds, terminalWorld } from '../../core/geometry';
+import { componentBounds, terminalWorld, allTerminals } from '../../core/geometry';
+import { isDigitalType } from '../../core/digital/types';
+import { digitalBodyFor } from '../../core/digitalSymbols';
+import { DigitalStateOverlay } from './DigitalOverlays';
+import { buildTopology } from '../../core/solver';
 import { lampBrightness, lampLoad } from '../../core/flow';
 import { synchronousSpeedRpm } from '../../core/acSolver';
 import { buildWirePath, offsetWire, toSvgPath } from '../../core/wirePath';
@@ -39,10 +43,12 @@ import { findNodeAt, type NodeHit } from '../../core/nodeInfo';
 import { MotorRotor } from './MotorRotor';
 import { SolenoidPlunger } from './SolenoidPlunger';
 import { CanvasHud } from './CanvasHud';
+import { SimToolbar } from '../layout/SimToolbar';
 import { CanvasContextMenu } from './CanvasContextMenu';
 import { ProbeLayer, type ProbeHoverTarget } from './ProbeLayer';
 import { useProbeStore } from '../../store/probeStore';
 import { RealPartArt } from './RealPartArt';
+import { DigitalPartArt, DigitalPinGuide } from './DigitalPartArt';
 
 type Mode =
   | { kind: 'idle' }
@@ -121,9 +127,11 @@ function ComponentView({
           coordinates exactly like the symbol, so they stay locked to it.
           scale(-1,1) mirrors in local space first, matching terminalWorld. */}
       <g transform={`rotate(${c.rotation}) scale(${c.mirrored ? -1 : 1},1)`}>
-        {c.type === 'bjtTransistor'
-          ? bjtBody(c.transistorType ?? 'npn')
-          : def.body}
+        {isDigitalType(c.type)
+          ? digitalBodyFor(c)
+          : c.type === 'bjtTransistor'
+            ? bjtBody(c.transistorType ?? 'npn')
+            : def.body}
 
         {/* 1. Switch Active/Closed Indicator */}
         {c.type === 'switch' && switchLever(c.value === 1)}
@@ -581,6 +589,12 @@ function ComponentView({
             />
           </g>
         )}
+
+        {/* Digital logic state: per-pin dots, readouts, display segments —
+            all rendered from the SimulationSnapshot, never from timers. */}
+        {isDigitalType(c.type) && (
+          <DigitalStateOverlay comp={c} compSolution={compSolution} />
+        )}
       </g>
       <rect
         className="sel-box"
@@ -626,8 +640,7 @@ function ComponentView({
           </text>
         </g>
       )}
-      {def.terminals.map((_, i) => {
-        const t = terminalWorld(c, i);
+      {allTerminals(c).map((t, i) => {
         const lx = t.x - c.x;
         const ly = t.y - c.y;
         const hot =
@@ -707,6 +720,13 @@ export function CircuitCanvas() {
   } | null>(null);
   const snapshot = useSimulationStore((s) => s.snapshot);
   const topology = useSimulationStore((s) => s.topology);
+  // Probe placement must work BEFORE the first simulation run: the store
+  // topology is null until start()/recalculate(), so derive it from the
+  // document lazily (it is a pure function of the circuit).
+  const resolvedTopology = useMemo(
+    () => topology ?? buildTopology(doc),
+    [topology, doc],
+  );
   const wireCurrents = snapshot?.wireCurrents ?? new Map();
   const componentData = snapshot?.componentData ?? new Map();
   const simValid = snapshot?.valid ?? false;
@@ -715,7 +735,31 @@ export function CircuitCanvas() {
 
   // ---- oscilloscope probe placement ----
   const probeStore = useProbeStore;
+  const placement = useProbeStore((s) => s.placement);
   const [probeHover, setProbeHover] = useState<ProbeHoverTarget>(null);
+  /** pointer type of the last canvas interaction (touch hit areas are larger) */
+  const pointerTypeRef = useRef<'mouse' | 'touch' | 'pen'>('mouse');
+
+  /**
+   * Mobile workflow: the oscilloscope panel is a bottom sheet that covers the
+   * canvas, so starting a placement from it would leave the user tapping a
+   * hidden circuit. Collapse the sheet while a placement is active and
+   * restore it afterwards (compact breakpoints only).
+   */
+  const panelWasOpenRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const ui = useUiStore.getState();
+    const compact = ui.breakpoint === 'tablet' || ui.breakpoint === 'mobile';
+    if (!compact) return;
+    const active = placement.mode !== 'idle';
+    if (active && panelWasOpenRef.current === null) {
+      panelWasOpenRef.current = ui.bottomPanelOpen;
+      if (ui.bottomPanelOpen) ui.setBottomPanelOpen(false);
+    } else if (!active && panelWasOpenRef.current !== null) {
+      if (panelWasOpenRef.current) ui.setBottomPanelOpen(true);
+      panelWasOpenRef.current = null;
+    }
+  }, [placement]);
 
   /* ---------- helpers ---------- */
 
@@ -760,9 +804,9 @@ export function CircuitCanvas() {
     };
   };
 
-  const findTerminal = (world: Point): [string, number] | null => {
+  const findTerminal = (world: Point, thresholdWorld?: number): [string, number] | null => {
     const ui = useUiStore.getState();
-    const threshold = 11 / ui.zoom;
+    const threshold = thresholdWorld ?? 11 / ui.zoom;
     let best: [string, number] | null = null;
     let bestDist = threshold;
     for (const c of doc.components) {
@@ -780,9 +824,9 @@ export function CircuitCanvas() {
   };
 
   /** Nearest wire within grabbing distance of the cursor, if any. */
-  const wireAttachmentAt = (world: Point): WireAttachment | null => {
+  const wireAttachmentAt = (world: Point, radiusWorld?: number): WireAttachment | null => {
     const ui = useUiStore.getState();
-    return hitTestWires(useCircuitStore.getState().doc, world, 10 / ui.zoom);
+    return hitTestWires(useCircuitStore.getState().doc, world, radiusWorld ?? 10 / ui.zoom);
   };
 
   const toJunction = (att: WireAttachment): WireJunction | null =>
@@ -836,15 +880,20 @@ export function CircuitCanvas() {
    * What a probe placement gesture would attach to at this
    * point: a node (voltage probes) or a branch — a component
    * or a wire (current probes).
+   *
+   * `touch` widens every hit radius so finger taps land reliably
+   * (radii are expressed in SCREEN pixels and converted to world
+   * units by dividing by the zoom).
    */
   const probeTargetAt = (
     world: Point,
     target: Element | null,
+    touch = false,
   ): ProbeHoverTarget => {
-    const placement = probeStore.getState().placement;
+    const ui = useUiStore.getState();
+    const px = (screenPx: number) => screenPx / ui.zoom;
     if (placement.mode === 'voltage') {
-      if (!topology) return null;
-      const node = findNodeAt(topology, world, 14 / useUiStore.getState().zoom);
+      const node = findNodeAt(resolvedTopology, world, px(touch ? 26 : 14));
       return node
         ? { kind: 'node', nodeId: node.nodeId, point: node.point }
         : null;
@@ -873,17 +922,71 @@ export function CircuitCanvas() {
         }
       }
       // geometric fallbacks (hit the body of a wire / a terminal)
-      const term = findTerminal(world);
+      const term = findTerminal(world, px(touch ? 26 : 11));
       if (term) {
         const comp = doc.components.find((c) => c.id === term[0]);
         if (comp)
           return { kind: 'branch', id: term[0], branchKind: 'component', point: { x: comp.x, y: comp.y } };
       }
-      const att = wireAttachmentAt(world);
+      const att = wireAttachmentAt(world, px(touch ? 30 : 10));
       if (att)
         return { kind: 'branch', id: att.wireId, branchKind: 'wire', point: att.point };
+      // last resort for touch: the NEAREST branch within finger radius
+      const near = nearestBranchAt(world, px(touch ? 34 : 14));
+      if (near) return { kind: 'branch', id: near.id, branchKind: near.kind, point: near.point };
     }
     return null;
+  };
+
+  /** Distance from point p to segment ab. */
+  const distPointSegment = (p: Point, a: Point, b: Point): number => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  };
+
+  /**
+   * Nearest electrical branch (component body or wire run) to a world
+   * point, within `maxDist` world units. Lets touch users attach a
+   * current probe without landing exactly on a thin wire.
+   */
+  const nearestBranchAt = (
+    world: Point,
+    maxDist: number,
+  ): { id: string; kind: 'component' | 'wire'; point: Point } | null => {
+    let bestId = '';
+    let bestKind: 'component' | 'wire' = 'component';
+    let bestPoint: Point = { x: 0, y: 0 };
+    let bestD = maxDist;
+    for (const c of doc.components) {
+      const d = Math.hypot(c.x - world.x, c.y - world.y);
+      if (d < bestD) {
+        bestD = d;
+        bestId = c.id;
+        bestKind = 'component';
+        bestPoint = { x: c.x, y: c.y };
+      }
+    }
+    for (const w of doc.wires) {
+      const pts: Point[] = [];
+      if (w.start.point) pts.push(w.start.point);
+      pts.push(...w.waypoints);
+      if (w.end.point) pts.push(w.end.point);
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const d = distPointSegment(world, pts[i], pts[i + 1]);
+        if (d < bestD) {
+          bestD = d;
+          bestId = w.id;
+          bestKind = 'wire';
+          bestPoint = pts[i];
+        }
+      }
+    }
+    return bestId ? { id: bestId, kind: bestKind, point: bestPoint } : null;
   };
 
   /* ---------- wire draft path ---------- */
@@ -942,6 +1045,7 @@ export function CircuitCanvas() {
     const svg = svgRef.current;
     if (!svg) return;
     setHoveredPart(null);
+    pointerTypeRef.current = e.pointerType;
     const ui = useUiStore.getState();
     const world = toWorld(e.clientX, e.clientY);
     const target = e.target as Element;
@@ -953,8 +1057,13 @@ export function CircuitCanvas() {
       return;
     }
 
-    // Pan: middle mouse, or Space + any button
-    if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+    // Pan: middle mouse, Space + any button, or the Hand tool.
+    // An active probe placement owns taps — the Hand tool must not steal them.
+    const placementActive = probeStore.getState().placement.mode !== 'idle';
+    if (
+      e.button === 1 ||
+      (e.button === 0 && (spaceHeld || (tool === 'hand' && !placementActive)))
+    ) {
       modeRef.current = {
         kind: 'pan',
         startX: e.clientX,
@@ -980,12 +1089,21 @@ export function CircuitCanvas() {
     // --- Oscilloscope probe placement owns the canvas ---
     const placement = probeStore.getState().placement;
     if (placement.mode !== 'idle') {
-      const hit = probeTargetAt(world, target);
+      const hit = probeTargetAt(world, target, e.pointerType === 'touch');
       if (placement.mode === 'voltage' && hit?.kind === 'node') {
         if (placement.step === 1) {
           probeStore.getState().setVoltageFirstPoint(hit.nodeId, hit.point);
         } else {
-          probeStore.getState().setVoltageSecondPoint(hit.nodeId, hit.point);
+          // Digital nodes render as step traces with duty/edge stats.
+          const isLogic =
+            useSimulationStore
+              .getState()
+              .topology?.components.some(
+                (ci) =>
+                  isDigitalType(ci.type) &&
+                  (ci.nodes ?? []).includes(hit.nodeId),
+              ) ?? false;
+          probeStore.getState().setVoltageSecondPoint(hit.nodeId, hit.point, isLogic);
         }
       } else if (placement.mode === 'current' && hit?.kind === 'branch') {
         const label =
@@ -1212,7 +1330,7 @@ export function CircuitCanvas() {
 
     // Probe placement hover highlight
     if (probeStore.getState().placement.mode !== 'idle') {
-      setProbeHover(probeTargetAt(world, e.target as Element | null));
+      setProbeHover(probeTargetAt(world, e.target as Element | null, e.pointerType === 'touch'));
     } else if (probeHover !== null) {
       setProbeHover(null);
     }
@@ -1220,7 +1338,7 @@ export function CircuitCanvas() {
     // Node hover card: only when nothing else is being dragged or drawn, so it
     // never competes with terminals, wires or components for clicks.
     if (!draft && tool === 'select' && topology && simValid) {
-      const node = findNodeAt(topology, world, 16 / ui.zoom);
+      const node = findNodeAt(resolvedTopology, world, 16 / ui.zoom);
       setHoveredNode((prev) => {
         if (!node) return prev === null ? prev : null;
         if (prev && prev.nodeId === node.nodeId) return prev;
@@ -1295,6 +1413,16 @@ export function CircuitCanvas() {
     if (mode.kind === 'move') {
       if (dragDelta && (dragDelta.x !== 0 || dragDelta.y !== 0)) {
         store.moveComponents(mode.ids, dragDelta.x, dragDelta.y);
+      } else if (mode.ids.length === 1) {
+        // A plain click (no drag) on a logic input toggles its level.
+        const comp = store.doc.components.find((cc) => cc.id === mode.ids[0]);
+        if (comp?.type === 'logic-input') {
+          store.updateComponents(
+            [comp.id],
+            { value: comp.value === 1 ? 0 : 1 },
+            'toggle-logic-input',
+          );
+        }
       }
     } else if (mode.kind === 'move-wires') {
       if (dragDelta && (dragDelta.x !== 0 || dragDelta.y !== 0)) {
@@ -1475,6 +1603,7 @@ export function CircuitCanvas() {
         ref={svgRef}
         className="canvas-svg"
         data-tool={tool}
+        data-placing={placement.mode !== 'idle'}
         data-panning={isPanning || spaceHeld}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1626,7 +1755,7 @@ export function CircuitCanvas() {
           {/* node voltages */}
           {simulationEnabled && (
             <NodeVoltageLayer
-              topology={topology}
+              topology={resolvedTopology}
               solverResult={snapshot}
               hoveredNodeId={hoveredNode?.nodeId ?? null}
             />
@@ -1646,11 +1775,12 @@ export function CircuitCanvas() {
           {/* oscilloscope probes: markers, labels, placement */}
           <ProbeLayer
             doc={doc}
-            topology={topology}
+            topology={resolvedTopology}
             snapshot={snapshot}
             zoom={zoom}
             toWorld={toWorld}
             hoverTarget={probeHover}
+            touch={pointerTypeRef.current === 'touch'}
           />
 
           {/* components */}
@@ -1736,16 +1866,25 @@ export function CircuitCanvas() {
               </span>
             )}
           </div>
-          <div className="part-hover-art">
-            <RealPartArt type={hoveredPart.comp.type} />
-          </div>
+          {isDigitalType(hoveredPart.comp.type) ? (
+            <>
+              <div className="part-hover-art">
+                <DigitalPartArt comp={hoveredPart.comp} />
+              </div>
+              <DigitalPinGuide comp={hoveredPart.comp} />
+            </>
+          ) : (
+            <div className="part-hover-art">
+              <RealPartArt type={hoveredPart.comp.type} />
+            </div>
+          )}
         </div>
       )}
 
       {simulationEnabled && hoveredNode && !draft && (
         <NodePopup
           doc={doc}
-          topology={topology}
+          topology={resolvedTopology}
           solverResult={snapshot}
           hit={hoveredNode}
           zoom={zoom}
@@ -1754,7 +1893,10 @@ export function CircuitCanvas() {
         />
       )}
 
-      <CanvasHud />
+      <div className="canvas-bottom">
+        <SimToolbar />
+        <CanvasHud />
+      </div>
       <CanvasContextMenu />
 
       <span

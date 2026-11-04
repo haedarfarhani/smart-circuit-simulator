@@ -7,7 +7,7 @@ export function AboutDialog() {
   const close = () => useUiStore.getState().setDialog(null);
 
   const rows: [string, string][] = [
-    ['V / W', t('key.select') + ' / ' + t('key.wire')],
+    ['V / W / H', t('key.select') + ' / ' + t('key.wire') + ' / ' + t('key.hand')],
     ['R', t('key.rotate')],
     ['Shift+R', t('inspector.mirrorBtn')],
     ['Del', t('key.delete')],

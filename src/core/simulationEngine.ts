@@ -61,6 +61,23 @@ import {
   stepBjtThermal,
   type BjtParameters,
 } from './bjtModel';
+import {
+  advanceDigital,
+  createDigitalSimState,
+  ensureRuntimes,
+} from './digital/kernel';
+import {
+  buildDigitalComponentSolution,
+  buildSevenSegSolution,
+  digitalPinCurrents,
+  isDigitalStamped,
+  resolveCompDigitalParams,
+  sevenSegConduction,
+  sevenSegSegmentCurrents,
+  stampDigitalComponent,
+  stampSevenSeg,
+} from './digital/stamping';
+import { isDigitalDeviceType, isSevenSegmentType } from './digital/types';
 
 // ---------------------------------------------------------------------------
 // Simulation clock + configuration
@@ -106,6 +123,11 @@ export interface SimulationState {
   capacitorStats?: Map<string, CapacitorRuntimeStats>;
   /** junction temperature per BJT (°C), advanced by the thermal model */
   bjtJunctionTemp?: Map<string, number>;
+  /**
+   * Digital kernel state: device runtimes, scheduled events, seven-segment
+   * conduction. Created lazily on the first digital component.
+   */
+  digital?: import('./digital/kernel').DigitalSimState | null;
   // Running totals for the simulation clock
   simTime: number;
   status: 'stopped' | 'running' | 'paused';
@@ -207,6 +229,8 @@ interface InstantaneousNetwork {
   I: number[];
   nodeIndex: Map<string, number>;
   vsIndex: Map<string, number>;
+  /** the reference the matrix was built against (may be virtual) */
+  effectiveGround: string;
   // Per-component instantaneous behaviour (diodes, AC sources, etc.)
   components: ComponentInfo[];
   topology: CircuitTopology;
@@ -217,6 +241,13 @@ interface InstantaneousNetwork {
 function safe(v: number, fallback = 0): number {
   return Number.isFinite(v) ? v : fallback;
 }
+
+/**
+ * Virtual 0 V reference for pure-digital circuits without a ground
+ * component (implicit supply). Matches no real node id, so every user
+ * node keeps its own matrix row and the Norton stamps define the rail.
+ */
+export const VIRTUAL_DIGITAL_GROUND = '__digital_rail__';
 
 /**
  * Build the instantaneous conductance network for a given simulation
@@ -242,12 +273,21 @@ export function buildInstantaneousNetwork(
   // Determine effective ground
   const connectedNodeIds = new Set<string>();
   for (const c of topoComps) {
-    if (c.nodeA) connectedNodeIds.add(c.nodeA);
-    if (c.nodeB) connectedNodeIds.add(c.nodeB);
+    for (const n of c.nodes) {
+      if (n) connectedNodeIds.add(n);
+    }
   }
   let effectiveGround = groundNode;
-  if (!connectedNodeIds.has(effectiveGround) && connectedNodeIds.size > 0) {
-    effectiveGround = connectedNodeIds.values().next().value!;
+  const hasUserGround = doc.components.some((c) => c.type === 'ground');
+  if (!hasUserGround && connectedNodeIds.size > 0) {
+    if (topoComps.every((c) => isDigitalStamped(c.type))) {
+      // Pure-digital circuit with implicit supply and no ground component:
+      // use a VIRTUAL reference so no logic node gets clamped to 0 V. The
+      // Norton stamps define the negative rail themselves.
+      effectiveGround = VIRTUAL_DIGITAL_GROUND;
+    } else {
+      effectiveGround = connectedNodeIds.values().next().value!;
+    }
   }
 
   if (!effectiveGround || connectedNodeIds.size === 0) {
@@ -258,6 +298,7 @@ export function buildInstantaneousNetwork(
       I: [],
       nodeIndex: new Map(),
       vsIndex: new Map(),
+      effectiveGround: '',
       components: topoComps,
       topology,
       doc,
@@ -291,6 +332,9 @@ export function buildInstantaneousNetwork(
   const inds = comps.filter(
     (c) => c.type === 'solenoid' || c.type === 'dcMotor',
   );
+  // Digital devices (kernel-driven) and seven-segment displays (electrical
+  // segment diodes) are stamped by the digital bridge, not as resistors.
+  const digitalComps = comps.filter((c) => isDigitalStamped(c.type));
 
   // ---- Linear passive components (resistors, lamps, motors' winding R) ----
   const linearResistors = comps.filter(
@@ -304,7 +348,8 @@ export function buildInstantaneousNetwork(
       !isZenerDiode(c.type) &&
       !isCapacitorType(c.type) &&
       c.type !== 'solenoid' &&
-      c.type !== 'dcMotor',
+      c.type !== 'dcMotor' &&
+      !isDigitalStamped(c.type),
   );
   const supplyVoltage =
     doc.components.find((c) => c.type === 'battery' || c.type === 'acVoltageSource')
@@ -512,6 +557,26 @@ export function buildInstantaneousNetwork(
     if (iB !== undefined) I[iB] += safe(cs.value);
   }
 
+  // ---- Digital devices: Norton outputs + family input loads ----
+  if (state.digital && digitalComps.length > 0) {
+    const prevVoltages = state.snapshot?.nodeVoltages ?? null;
+    for (const dc of digitalComps) {
+      const docComp = docById.get(dc.id);
+      if (!docComp) continue;
+      if (isSevenSegmentType(dc.type)) {
+        const conducting = state.digital.sevenSeg.get(dc.id) ?? new Array(8).fill(false);
+        stampSevenSeg(G, I, nodeIndex, docComp, dc.nodes, conducting);
+        continue;
+      }
+      const runtime = state.digital.runtimes.get(dc.id);
+      if (!runtime) continue;
+      stampDigitalComponent(
+        G, I, nodeIndex, docComp, dc.nodes, runtime,
+        resolveCompDigitalParams(docComp), dt, prevVoltages,
+      );
+    }
+  }
+
   // ---- Voltage sources: DC battery + instantaneous AC ----
   for (const vs of voltageSources) {
     const idx = vsIndex.get(vs.id)!;
@@ -542,6 +607,7 @@ export function buildInstantaneousNetwork(
     I,
     nodeIndex,
     vsIndex,
+    effectiveGround,
     components: comps,
     topology,
     doc,
@@ -610,6 +676,22 @@ export function stepSimulation(
   }
   if (connectedNodeIds.size === 0) return emptySnap();
 
+  // ---- digital kernel advance (before the solve: outputs stamp into it) ----
+  const hasDigital = topology.components.some((c) => isDigitalStamped(c.type));
+  const hasSevenSeg = topology.components.some((c) => isSevenSegmentType(c.type));
+  let digitalWarnings: string[] = [];
+  if (hasDigital) {
+    if (!state.digital) {
+      state.digital = createDigitalSimState();
+    }
+    ensureRuntimes(doc, state.digital);
+    const result = advanceDigital(
+      doc, topology, state.digital, t, safeDt,
+      state.snapshot?.nodeVoltages ?? null,
+    );
+    digitalWarnings = result.warnings;
+  }
+
   // ---- diode fixed-point iteration: guess → solve → update → repeat ----
   const diodeStates = initialDiodeStates(topology, state.snapshot);
   const diodes = topology.components.filter(
@@ -652,6 +734,13 @@ export function stepSimulation(
   );
   if (net.matrixSize === 0) return emptySnap();
 
+  /** Solved solution vector → node voltage map (seven-segment updates). */
+  const voltagesFromSol = (solArr: number[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const [nodeId, idx] of net.nodeIndex) m.set(nodeId, safe(solArr[idx]));
+    return m;
+  };
+
   let sol: number[] | null = null;
   for (let iter = 0; iter <= MAX_DIODE_ITERS; iter++) {
     const s = solveLinearSystem(net.G, net.I);
@@ -660,7 +749,12 @@ export function stepSimulation(
       break;
     }
     sol = s;
-    if (diodes.length === 0 && zeners.length === 0 && bjts.length === 0) break;
+    if (
+      diodes.length === 0 &&
+      zeners.length === 0 &&
+      bjts.length === 0 &&
+      !hasSevenSeg
+    ) break;
 
     let changed = false;
     for (const d of diodes) {
@@ -710,6 +804,27 @@ export function stepSimulation(
       st.vbc = nvbc;
     }
 
+    // Seven-segment displays: per-segment conduction, like diodes.
+    if (state.digital && hasSevenSeg && sol) {
+      const solved = voltagesFromSol(sol);
+      for (const s of topology.components) {
+        if (!isSevenSegmentType(s.type)) continue;
+        const docComp = doc.components.find((c) => c.id === s.id);
+        if (!docComp) continue;
+        const prevArr =
+          state.digital.sevenSeg.get(s.id) ??
+          (new Array(8).fill(false) as boolean[]);
+        const next = sevenSegConduction(docComp, solved, s.nodes, prevArr);
+        for (let i = 0; i < 8; i++) {
+          if (next[i] !== prevArr[i]) {
+            prevArr[i] = next[i];
+            changed = true;
+          }
+        }
+        state.digital.sevenSeg.set(s.id, prevArr);
+      }
+    }
+
     if (!changed) break;
     net = buildInstantaneousNetwork(
       doc, topology, t, state, safeDt, diodeStates, zenerStates, bjtStates,
@@ -730,14 +845,18 @@ export function stepSimulation(
   }
 
   // ---- node voltages ----
+  // Mapped through the network's own nodeIndex: the matrix reference may
+  // be a virtual rail (groundless pure-digital circuits), in which case
+  // filtering by topology.groundNode would shift every voltage by a row.
   const nodeVoltages = new Map<string, number>();
-  nodeVoltages.set(topology.groundNode, 0);
-  const nodeList = Array.from(topology.nodes.values()).filter(
-    (n) => n.id !== topology.groundNode,
-  );
-  nodeList.forEach((node, i) => {
-    if (i < sol!.length) nodeVoltages.set(node.id, safe(sol![i]));
-  });
+  if (topology.nodes.has(net.effectiveGround)) {
+    nodeVoltages.set(net.effectiveGround, 0);
+  } else {
+    nodeVoltages.set(topology.groundNode, 0);
+  }
+  for (const [nodeId, idx] of net.nodeIndex) {
+    nodeVoltages.set(nodeId, safe(sol![idx]));
+  }
 
   // ---- branch currents through voltage sources ----
   const branchCurrents = new Map<string, number>();
@@ -763,8 +882,21 @@ export function stepSimulation(
   const supplyVoltage =
     doc.components.find((c) => c.type === 'battery' || c.type === 'acVoltageSource')
       ?.value ?? 0;
+  /** digital / display extras for the current component (attached below) */
+  let digitalTerminalCurrents: number[] | undefined;
+  let digitalExtra:
+    | import('./digital/stamping').DigitalSolution
+    | undefined;
+  let sevenSegExtra:
+    | import('./digital/stamping').SevenSegSolution
+    | undefined;
+  let sevenSegPower = 0;
 
   for (const comp of net.components) {
+    digitalTerminalCurrents = undefined;
+    digitalExtra = undefined;
+    sevenSegExtra = undefined;
+    sevenSegPower = 0;
     const iA = net.nodeIndex.get(comp.nodeA);
     const iB = net.nodeIndex.get(comp.nodeB);
     const iE = net.nodeIndex.get(comp.nodeC ?? '');
@@ -954,6 +1086,59 @@ export function stepSimulation(
       }
     }
 
+    // Digital device telemetry: classified inputs, output states, sequential
+    // bits and the estimated supply power all come from the kernel runtime.
+    if (state.digital && isDigitalDeviceType(comp.type)) {
+      const docComp = docById.get(comp.id);
+      const runtime = state.digital.runtimes.get(comp.id);
+      if (runtime && docComp) {
+        const res = resolveCompDigitalParams(docComp);
+        digitalTerminalCurrents = digitalPinCurrents(
+          docComp, runtime, res, nodeVoltages,
+          state.snapshot?.nodeVoltages ?? null, comp.nodes, safeDt,
+        );
+        current = digitalTerminalCurrents.reduce((a, b) => a + b, 0);
+        solution.current = current;
+        solution.currentDirection = current >= 0 ? 1 : -1;
+        digitalExtra = buildDigitalComponentSolution(
+          docComp, runtime, doc.components, net.components, nodeVoltages, comp.nodes,
+        );
+        solution.power = digitalExtra.power;
+      }
+    }
+
+    // Seven-segment display: real segment currents → per-segment brightness.
+    if (state.digital && isSevenSegmentType(comp.type)) {
+      const docComp = docById.get(comp.id);
+      const conducting =
+        state.digital.sevenSeg.get(comp.id) ??
+        (new Array(8).fill(false) as boolean[]);
+      if (docComp) {
+        const segCurrents = sevenSegSegmentCurrents(
+          docComp, nodeVoltages, comp.nodes, conducting,
+        );
+        digitalTerminalCurrents = segCurrents;
+        current = segCurrents.reduce((a, b) => a + b, 0);
+        solution.current = current;
+        solution.currentDirection = current >= 0 ? 1 : -1;
+        sevenSegExtra = buildSevenSegSolution(docComp, segCurrents, conducting);
+        sevenSegPower = segCurrents.reduce((a, b) => a + Math.abs(b), 0) * 2.0;
+        solution.power = sevenSegPower;
+      }
+    }
+
+    if (digitalTerminalCurrents) solution.terminalCurrents = digitalTerminalCurrents;
+    if (digitalExtra) {
+      solution.digital = digitalExtra;
+      // Estimated supply power is the meaningful readout for a multi-pin
+      // device, not V×I of its first two pins.
+      solution.power = digitalExtra.power;
+    }
+    if (sevenSegExtra) {
+      solution.sevenSeg = sevenSegExtra;
+      solution.power = sevenSegPower;
+    }
+
     componentData.set(comp.id, solution);
   }
 
@@ -1019,6 +1204,13 @@ export function stepSimulation(
 
   const warnings: string[] = [];
   if (state.simTime > 1e6) warnings.push('Simulation time unusually large');
+  if (digitalWarnings.length > 0) {
+    // Digital warnings are the kernel's CURRENTLY-active conditions (they
+    // clear themselves when the condition resolves).
+    for (const w of digitalWarnings) {
+      if (!warnings.includes(w)) warnings.push(w);
+    }
+  }
 
   return {
     simTime: t,
@@ -1045,9 +1237,9 @@ function computeWireCurrents(
 
   const termNode = new Map<string, string>();
   for (const comp of topology.components) {
-    if (comp.nodeA) termNode.set(`${comp.id}:0`, comp.nodeA);
-    if (comp.nodeB) termNode.set(`${comp.id}:1`, comp.nodeB);
-    if (comp.nodeC) termNode.set(`${comp.id}:2`, comp.nodeC);
+    comp.nodes.forEach((n, i) => {
+      if (n) termNode.set(`${comp.id}:${i}`, n);
+    });
   }
 
   for (const wire of doc.wires) {

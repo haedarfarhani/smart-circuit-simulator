@@ -100,7 +100,7 @@ export interface ProbeState {
   startPlacement: (type: ProbeType) => void;
   cancelPlacement: () => void;
   setVoltageFirstPoint: (nodeId: string, point: Point) => void;
-  setVoltageSecondPoint: (nodeId: string, point: Point) => void;
+  setVoltageSecondPoint: (nodeId: string, point: Point, logic?: boolean) => void;
   setCurrentBranch: (
     branchId: string,
     kind: 'component' | 'wire',
@@ -151,7 +151,7 @@ export const useProbeStore = create<ProbeState>((set, get) => ({
     set({ placement: { ...p, step: 2, plusNodeId: nodeId, plusPoint: point } });
   },
 
-  setVoltageSecondPoint: (nodeId, point) => {
+  setVoltageSecondPoint: (nodeId, point, logic = false) => {
     const p = get().placement;
     if (p.mode !== 'voltage' || p.step !== 2 || p.plusNodeId == null) return;
     if (nodeId === p.plusNodeId) return; // same point: no voltage
@@ -169,6 +169,7 @@ export const useProbeStore = create<ProbeState>((set, get) => ({
         negativePoint: point,
         branchId: null,
         branchKind: null,
+        logic,
         label: ch.label,
       };
     });

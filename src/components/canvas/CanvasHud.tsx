@@ -10,13 +10,19 @@ export function CanvasHud() {
   const probe = useProbeStore();
   const placement = probe.placement;
 
+  // Touch devices get "tap" phrasing instead of "click".
+  const coarse =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+
   const placementPrompt =
     placement.mode === 'voltage'
       ? placement.step === 1
-        ? t('probe.placeVoltage1')
-        : t('probe.placeVoltage2')
+        ? t(coarse ? 'probe.tapVoltage1' : 'probe.placeVoltage1')
+        : t(coarse ? 'probe.tapVoltage2' : 'probe.placeVoltage2')
       : placement.mode === 'current'
-        ? t('probe.placeCurrent')
+        ? t(coarse ? 'probe.tapCurrent' : 'probe.placeCurrent')
         : null;
 
   const zoomPct = Math.round(ui.zoom * 100);
@@ -68,6 +74,13 @@ export function CanvasHud() {
     else probe.startPlacement(kind);
   };
 
+  const hudVisible = useUiStore((s) => s.hudVisible);
+  const setHudVisible = useUiStore((s) => s.setHudVisible);
+
+  // The pill and its restore button stay mounted in the same grid cell so
+  // hide/show cross-fades with a slide instead of popping in and out.
+  const pillHidden = !hudVisible && !placementPrompt;
+
   return (
     <div className="canvas-hud">
       {placementPrompt && (
@@ -86,7 +99,14 @@ export function CanvasHud() {
         </div>
       )}
 
-      <div className="hud-pill" role="toolbar" aria-label="Canvas HUD">
+      <div className="hud-stack">
+        <div
+          className="hud-pill"
+          data-hidden={pillHidden}
+          role="toolbar"
+          aria-label="Canvas HUD"
+          aria-hidden={pillHidden}
+        >
         <div className="hud-group" role="group" aria-label={t('hud.zoomIn')}>
           <button
             type="button"
@@ -179,6 +199,30 @@ export function CanvasHud() {
 
         <div className="hud-sep" aria-hidden="true" />
 
+        <div className="hud-group" role="group" aria-label={t('features.oscilloscope')}>
+          <button
+            type="button"
+            className="hud-btn hud-probe-btn hud-scope-btn"
+            data-active={ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope'}
+            aria-pressed={ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope'}
+            title={t('features.oscilloscope')}
+            aria-label={t('features.oscilloscope')}
+            onClick={() => {
+              const open = ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope';
+              ui.setBottomPanelTab('oscilloscope');
+              ui.setBottomPanelOpen(!open);
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+              <path d="M3.5 10l2.5-4 2 4 2.5-4 2 4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="hud-probe-text">{t('tab.oscilloscope')}</span>
+          </button>
+        </div>
+
+        <div className="hud-sep" aria-hidden="true" />
+
         <div className="hud-group" role="group" aria-label="probes">
           <button
             type="button"
@@ -264,6 +308,42 @@ export function CanvasHud() {
             </svg>
           </button>
         </div>
+
+        <div className="hud-sep" aria-hidden="true" />
+
+        <div className="hud-group" role="group" aria-label={t('hud.hideToolbar')}>
+          <button
+            type="button"
+            className="hud-btn"
+            title={t('hud.hideToolbar')}
+            aria-label={t('hud.hideToolbar')}
+            aria-pressed={false}
+            tabIndex={pillHidden ? -1 : 0}
+            onClick={() => setHudVisible(false)}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m3.5 6.5 4.5 4.5 4.5-4.5" />
+              <path d="M3.5 3h9" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+        <button
+          type="button"
+          className="hud-restore"
+          data-hidden={hudVisible}
+          title={t('hud.showToolbar')}
+          aria-label={t('hud.showToolbar')}
+          aria-pressed={false}
+          tabIndex={hudVisible ? -1 : 0}
+          onClick={() => setHudVisible(true)}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m3.5 9.5 4.5-4.5 4.5 4.5" />
+            <path d="M3.5 13h9" />
+          </svg>
+        </button>
       </div>
     </div>
   );

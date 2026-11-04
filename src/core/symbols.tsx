@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { DEFAULT_SOLENOID_INDUCTANCE } from '../models/circuit';
 import type { ComponentType, TerminalDef } from '../models/circuit';
+import { DIGITAL_SYMBOLS } from './digitalSymbols';
 
 /**
  * Standard IEC-style schematic symbols drawn in local space.
@@ -20,7 +21,12 @@ export type LibraryCategory =
   | 'semiconductors'
   | 'sources'
   | 'switches'
-  | 'actuators';
+  | 'actuators'
+  | 'digital-gates'
+  | 'digital-combinational'
+  | 'digital-sequential'
+  | 'digital-displays'
+  | 'digital-io';
 
 export interface SymbolDef {
   type: ComponentType;
@@ -36,6 +42,11 @@ export interface SymbolDef {
   w: number;
   h: number;
   terminals: TerminalDef[];
+  /**
+   * Instance-dependent terminals (digital multi-bit devices): when present,
+   * it overrides `terminals` for every geometry consumer.
+   */
+  terminalsFor?: (comp: import('../models/circuit').CircuitComponent) => TerminalDef[];
   /** SVG body including leads, drawn around local origin */
   body: ReactNode;
 }
@@ -79,7 +90,7 @@ function leadRight(): ReactNode {
   return line(24, 0, LEAD_LEN, 0);
 }
 
-export const SYMBOLS: Record<ComponentType, SymbolDef> = {
+const ANALOG_SYMBOLS: Partial<Record<ComponentType, SymbolDef>> = {
   resistor: {
     type: 'resistor',
     prefix: 'R',
@@ -535,4 +546,14 @@ export const CATEGORIES: { id: LibraryCategory; labelKey: string }[] = [
   { id: 'semiconductors', labelKey: 'lib.semiconductors' },
   { id: 'switches', labelKey: 'lib.switches' },
   { id: 'actuators', labelKey: 'lib.actuators' },
+  { id: 'digital-gates', labelKey: 'lib.category.digitalGates' },
+  { id: 'digital-combinational', labelKey: 'lib.category.digitalCombinational' },
+  { id: 'digital-sequential', labelKey: 'lib.category.digitalSequential' },
+  { id: 'digital-displays', labelKey: 'lib.category.digitalDisplays' },
+  { id: 'digital-io', labelKey: 'lib.category.digitalIo' },
 ];
+
+export const SYMBOLS: Record<ComponentType, SymbolDef> = {
+  ...ANALOG_SYMBOLS,
+  ...DIGITAL_SYMBOLS,
+} as Record<ComponentType, SymbolDef>;

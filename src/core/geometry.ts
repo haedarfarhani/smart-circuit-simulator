@@ -25,7 +25,13 @@ export function terminalWorld(
   comp: CircuitComponent,
   index: number,
 ): Point & { dx: number; dy: number } {
-  const def: TerminalDef = SYMBOLS[comp.type].terminals[index];
+  const dyn = SYMBOLS[comp.type].terminalsFor?.(comp);
+  const def: TerminalDef | undefined = dyn
+    ? dyn[index]
+    : SYMBOLS[comp.type].terminals[index];
+  // A stale terminal index (e.g. a wire attached to a pin that a width
+  // change removed) falls back to the component center instead of crashing.
+  if (!def) return { x: comp.x, y: comp.y, dx: 1, dy: 0 };
   // Horizontal mirror is applied in local space (before rotation), exactly
   // like the `scale(-1,1)` render transform — keeps wires locked to symbols.
   const mx = comp.mirrored ? -1 : 1;
@@ -34,10 +40,19 @@ export function terminalWorld(
   return { x: comp.x + local.x, y: comp.y + local.y, dx: dir.x, dy: dir.y };
 }
 
+/** Number of terminals a component instance exposes (width-dependent for
+ * digital multi-bit devices). */
+export function terminalCount(comp: CircuitComponent): number {
+  const dyn = SYMBOLS[comp.type].terminalsFor?.(comp);
+  return dyn ? dyn.length : SYMBOLS[comp.type].terminals.length;
+}
+
 export function allTerminals(
   comp: CircuitComponent,
 ): (Point & { dx: number; dy: number })[] {
-  return SYMBOLS[comp.type].terminals.map((_, i) => terminalWorld(comp, i));
+  const dyn = SYMBOLS[comp.type].terminalsFor?.(comp);
+  const n = dyn ? dyn.length : SYMBOLS[comp.type].terminals.length;
+  return Array.from({ length: n }, (_, i) => terminalWorld(comp, i));
 }
 
 /** Axis-aligned bounds of a component in world units (label included). */

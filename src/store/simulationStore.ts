@@ -8,6 +8,7 @@ import {
   DEFAULT_DT,
 } from '../core/simulationEngine';
 import { seedCapacitorState, type CapacitorRuntimeStats } from '../core/capacitorModel';
+import { createDigitalSimState, resetDigitalState, type DigitalSimState } from '../core/digital/kernel';
 import { useCircuitStore } from './circuitStore';
 import { useUiStore } from './uiStore';
 import { useProbeStore } from './probeStore';
@@ -100,6 +101,8 @@ export interface SimulationState {
   capacitorTemperature: Map<string, number>;
   capacitorStats: Map<string, CapacitorRuntimeStats>;
   bjtJunctionTemp: Map<string, number>;
+  /** Digital kernel state (device runtimes, scheduled events). */
+  digital: DigitalSimState | null;
 
   // Controls
   start: () => void;
@@ -109,6 +112,8 @@ export interface SimulationState {
   singleStep: () => void;
   setSimSpeed: (preset: SimSpeedPreset) => void;
   setSamplingRate: (rate: number) => void;
+  /** Set the electrical timestep (s). Needed to resolve fast digital clocks. */
+  setDt: (dt: number) => void;
   clearSamples: () => void;
   /** Reset the oscilloscope channel histories. */
   clearChannelSamples: () => void;
@@ -137,6 +142,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
     capacitorTemperature: new Map(),
     capacitorStats: new Map(),
     bjtJunctionTemp: new Map(),
+    digital: null,
 
     start: () => {
       const s = get();
@@ -161,6 +167,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
           capacitorTemperature: seeded.capacitorTemperature,
           capacitorStats: seeded.capacitorStats,
           bjtJunctionTemp: new Map(),
+          digital: createDigitalSimState(),
         });
         // Re-calc topology/analysis for the analyzer panel
         const result = solveCircuit(doc);
@@ -181,7 +188,16 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
     pause: () => set({ status: 'paused' }),
 
     stop: () => {
-      set({ status: 'stopped', simTime: 0, samples: [], channelSamples: emptyChannelSamples() });
+      const doc = useCircuitStore.getState().doc;
+      const digital = get().digital ?? createDigitalSimState();
+      resetDigitalState(doc, digital);
+      set({
+        status: 'stopped',
+        simTime: 0,
+        samples: [],
+        channelSamples: emptyChannelSamples(),
+        digital,
+      });
       useUiStore.getState().setSimulationEnabled(false);
     },
 
@@ -208,6 +224,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         capacitorCurrent: seeded.capacitorCurrent,
         capacitorTemperature: seeded.capacitorTemperature,
         capacitorStats: seeded.capacitorStats,
+        digital: createDigitalSimState(),
       });
     },
 
@@ -228,6 +245,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         capacitorTemperature: s.capacitorTemperature ?? new Map(),
         capacitorStats: s.capacitorStats ?? new Map(),
         bjtJunctionTemp: s.bjtJunctionTemp ?? new Map(),
+        digital: s.digital,
         simTime: s.simTime,
         status: 'paused',
         snapshot: s.snapshot,
@@ -274,6 +292,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
           capacitorCurrent: engineState.capacitorCurrent ?? new Map(),
           capacitorTemperature: engineState.capacitorTemperature ?? new Map(),
           capacitorStats: engineState.capacitorStats ?? new Map(),
+          digital: engineState.digital ?? null,
           samples: ns.length > st.maxSamples ? ns.slice(-st.maxSamples) : ns,
           channelSamples: nextChannels,
         };
@@ -288,6 +307,9 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
 
     setSamplingRate: (rate) =>
       set({ samplingRate: Math.max(1, Math.min(5000, rate)) }),
+
+    setDt: (dt) =>
+      set({ dt: Math.max(1e-6, Math.min(2e-3, Number.isFinite(dt) && dt > 0 ? dt : 1e-4)) }),
 
     clearSamples: () => set({ samples: [], simTime: 0 }),
 
@@ -360,6 +382,7 @@ function electricalLoop() {
     let capacitorTemperature = store.capacitorTemperature ?? new Map<string, number>();
     let capacitorStats = store.capacitorStats ?? new Map<string, CapacitorRuntimeStats>();
     let bjtJunctionTemp = store.bjtJunctionTemp ?? new Map<string, number>();
+    let digital = store.digital ?? createDigitalSimState();
     let simTime = store.simTime;
     let snapshot = store.snapshot;
     let samples = store.samples;
@@ -387,6 +410,7 @@ function electricalLoop() {
         capacitorTemperature,
         capacitorStats,
         bjtJunctionTemp,
+        digital,
         simTime,
         status: 'running',
         snapshot,
@@ -406,6 +430,7 @@ function electricalLoop() {
         engineState.capacitorStats ?? new Map<string, CapacitorRuntimeStats>();
       bjtJunctionTemp =
         engineState.bjtJunctionTemp ?? new Map<string, number>();
+      digital = engineState.digital ?? digital;
       simTime = snap.simTime;
       snapshot = snap;
 
@@ -455,7 +480,9 @@ function electricalLoop() {
         errors = [...errors, snap.error].slice(-50);
       }
       if (snap.warnings.length) {
-        warnings = [...warnings, ...snap.warnings].slice(-50);
+        // Deduplicate: digital warnings are currently-active conditions and
+        // would otherwise repeat into the console log every timestep.
+        warnings = [...new Set([...warnings, ...snap.warnings])].slice(-50);
       }
 
       dtAccumulator -= store.dt;
@@ -478,6 +505,7 @@ function electricalLoop() {
         capacitorCurrent,
         capacitorTemperature,
         capacitorStats,
+        digital,
         samples,
         channelSamples,
         errors,

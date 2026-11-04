@@ -51,7 +51,40 @@ export type ComponentType =
   | 'acMotor'
   | 'zenerDiode'
   | 'zener-diode'
-  | 'bjtTransistor';
+  | 'bjtTransistor'
+  // ---- Digital logic (see core/digital) ----
+  | 'and-gate'
+  | 'or-gate'
+  | 'not-gate'
+  | 'nand-gate'
+  | 'nor-gate'
+  | 'xor-gate'
+  | 'xnor-gate'
+  | 'buffer-gate'
+  | 'multiplexer'
+  | 'demultiplexer'
+  | 'decoder'
+  | 'encoder'
+  | 'half-adder'
+  | 'full-adder'
+  | 'adder'
+  | 'subtractor'
+  | 'comparator'
+  | 'alu'
+  | 'sr-latch'
+  | 'd-latch'
+  | 'sr-flip-flop'
+  | 'd-flip-flop'
+  | 'jk-flip-flop'
+  | 't-flip-flop'
+  | 'register'
+  | 'shift-register'
+  | 'counter'
+  | 'seven-segment-display'
+  | 'bcd-to-seven-segment-decoder'
+  | 'logic-input'
+  | 'logic-output'
+  | 'clock-generator';
 
 export type ZenerModelType = 'piecewise-linear' | 'advanced' | 'ideal' | 'custom';
 
@@ -173,6 +206,41 @@ export interface CircuitComponent {
   description?: string;
   /** Mirror the symbol horizontally around its center (terminals follow) */
   mirrored?: boolean;
+
+  // ---- Digital logic (see core/digital) ----
+  /** Logic family id (cmos, cd4000, 74hc, 74hct, 74ac, ttl, 74ls, 74als) */
+  logicFamily?: string;
+  /** Supply voltage override (V); 0/undefined = family nominal. Implicit
+   * supply: gates do not have supply pins — see the architecture report. */
+  vcc?: number;
+  /** Propagation delay override (s); 0/undefined = family value */
+  tpd?: number;
+  /** Bit width for multi-bit devices (adders, registers, counters, ALU…) */
+  width?: number;
+  /** Data-line count (gate inputs, mux data lines, decoder selects…) */
+  inputCount?: number;
+  /** Counter variant */
+  counterMode?: 'up' | 'down' | 'updown' | 'ring' | 'johnson';
+  /** Shift register mode */
+  shiftMode?: 'siso' | 'sipo' | 'piso' | 'pipo';
+  /** Shift register direction */
+  shiftDirection?: 'right' | 'left';
+  /** Active clock edge for edge-triggered devices */
+  edge?: 'rising' | 'falling';
+  /** Active-LOW variant (decoder outputs, SR latch inputs, control pins) */
+  activeLow?: boolean;
+  /** Encoder priority mode */
+  priority?: boolean;
+  /** Signed (two's-complement) arithmetic / comparison */
+  signed?: boolean;
+  /** Hexadecimal decoding on the BCD→seven-segment decoder */
+  hexMode?: boolean;
+  /** Seven-segment display common-terminal type */
+  commonType?: 'common-cathode' | 'common-anode';
+  /** Clock generator duty cycle, percent */
+  dutyCycle?: number;
+  /** Clock generator enable (pause) */
+  enabled?: boolean;
 
   // ---- Polarized capacitor ----
   /** Capacitor chemistry: aluminum electrolytic | tantalum | polymer | custom */

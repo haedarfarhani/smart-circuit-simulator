@@ -377,6 +377,7 @@ export function ProbeLayer({
   zoom,
   toWorld,
   hoverTarget,
+  touch = false,
 }: {
   doc: CircuitDoc;
   topology: import('../../core/solver').CircuitTopology | null;
@@ -384,6 +385,8 @@ export function ProbeLayer({
   zoom: number;
   toWorld: (clientX: number, clientY: number) => Point;
   hoverTarget: ProbeHoverTarget;
+  /** touch pointer: enlarge the placement preview ring for fingers */
+  touch?: boolean;
 }) {
   const t = makeT(useUiStore((s) => s.locale));
   const channels = useProbeStore((s) => s.channels);
@@ -583,7 +586,7 @@ export function ProbeLayer({
           {hoverTarget?.kind === 'node' && (
             <g transform={`translate(${hoverTarget.point.x},${hoverTarget.point.y})`}>
               <circle
-                r={7 / Math.sqrt(zoom)}
+                r={(touch ? 15 : 7) / Math.sqrt(zoom)}
                 fill="none"
                 stroke={placement.step === 1 ? '#38bdf8' : '#f43f5e'}
                 strokeWidth={1.6}
@@ -600,7 +603,7 @@ export function ProbeLayer({
           <circle
             cx={hoverTarget.point.x}
             cy={hoverTarget.point.y}
-            r={8 / Math.sqrt(zoom)}
+            r={(touch ? 16 : 8) / Math.sqrt(zoom)}
             fill="none"
             stroke="#22c55e"
             strokeWidth={1.6}

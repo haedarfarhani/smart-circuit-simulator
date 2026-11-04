@@ -20,6 +20,8 @@ import {
   channelTargetState,
   channelUnit,
   computeStats,
+  logicDutyCycle,
+  logicEdgeCount,
   findTriggerTime,
   stepTimeDiv,
   type ChannelId,
@@ -27,6 +29,7 @@ import {
   type OscilloscopeChannel,
 } from '../../models/probe';
 import { formatValue } from '../../core/labels';
+import { buildTopology } from '../../core/solver';
 import { makeT } from '../../i18n';
 
 const GRID_X = 10;
@@ -148,6 +151,12 @@ export function Oscilloscope() {
   const status = useSimulationStore((s) => s.status);
   const topology = useSimulationStore((s) => s.topology);
   const circuitDoc = useCircuitStore((s) => s.doc);
+  // The store topology is null until the first simulation run — derive it
+  // from the document so freshly-placed probes never read as stale.
+  const resolvedTopology = useMemo(
+    () => topology ?? buildTopology(circuitDoc),
+    [topology, circuitDoc],
+  );
 
   const [hoverT, setHoverT] = useState<number | null>(null);
   const [hoverXPct, setHoverXPct] = useState<number>(0);
@@ -167,9 +176,9 @@ export function Oscilloscope() {
   // zero — indistinguishable from "no waveform".
   const targetStates = useMemo(() => {
     const m = new Map<ChannelId, ReturnType<typeof channelTargetState>>();
-    for (const ch of channels) m.set(ch.id, channelTargetState(ch, topology, circuitDoc));
+    for (const ch of channels) m.set(ch.id, channelTargetState(ch, resolvedTopology, circuitDoc));
     return m;
-  }, [channels, topology, circuitDoc]);
+  }, [channels, resolvedTopology, circuitDoc]);
 
   const enabledChannels = useMemo(
     () =>
@@ -391,14 +400,34 @@ export function Oscilloscope() {
         ctx.shadowColor = ch.color;
         ctx.shadowBlur = 7;
         ctx.beginPath();
-        let started = false;
-        for (const s of vs) {
-          const x = mapX(s.t);
-          const y = mapY(ch, s.value);
-          if (!started) {
-            ctx.moveTo(x, y);
-            started = true;
-          } else ctx.lineTo(x, y);
+        if (ch.logic) {
+          // Digital channels render as a classic step trace: hold each
+          // level until the next sample, then jump vertically.
+          let started = false;
+          let lastY = 0;
+          for (const s of vs) {
+            const x = mapX(s.t);
+            const y = mapY(ch, s.value);
+            if (!started) {
+              ctx.moveTo(x, y);
+              started = true;
+            } else {
+              ctx.lineTo(x, lastY);
+              ctx.lineTo(x, y);
+            }
+            lastY = y;
+          }
+          ctx.lineTo(mapX(vs[vs.length - 1].t), lastY);
+        } else {
+          let started = false;
+          for (const s of vs) {
+            const x = mapX(s.t);
+            const y = mapY(ch, s.value);
+            if (!started) {
+              ctx.moveTo(x, y);
+              started = true;
+            } else ctx.lineTo(x, y);
+          }
         }
         ctx.stroke();
         ctx.restore();
@@ -593,8 +622,8 @@ export function Oscilloscope() {
   const dFreq = dT != null && Math.abs(dT) > 1e-12 ? 1 / Math.abs(dT) : null;
 
   const nodeLabel = (nodeId: string | null): string => {
-    if (!nodeId || !topology) return '—';
-    const n = topology.nodes.get(nodeId);
+    if (!nodeId || !resolvedTopology) return '—';
+    const n = resolvedTopology.nodes.get(nodeId);
     return n ? `(${Math.round(n.x)}, ${Math.round(n.y)})` : '—';
   };
 
@@ -682,6 +711,7 @@ export function Oscilloscope() {
             className="scope-tool-btn"
             onClick={() => useSimulationStore.getState().reset()}
             title={t('sim.reset')}
+            aria-label={t('sim.reset') || 'Reset'}
           >
             ↺ <span className="scope-tool-label">{t('sim.reset') || 'Reset'}</span>
           </button>
@@ -693,6 +723,7 @@ export function Oscilloscope() {
               setCursorB(null);
             }}
             title={t('osc.clear') || 'Clear'}
+            aria-label={t('osc.clear') || 'Clear'}
           >
             ✕ <span className="scope-tool-label">{t('osc.clear') || 'Clear'}</span>
           </button>
@@ -700,6 +731,7 @@ export function Oscilloscope() {
             className="scope-tool-btn"
             onClick={exportCsv}
             title={t('scope.export') || 'Export CSV'}
+            aria-label={t('scope.export') || 'Export CSV'}
           >
             ⇓ <span className="scope-tool-label">{t('scope.export') || 'Export CSV'}</span>
           </button>
@@ -707,6 +739,7 @@ export function Oscilloscope() {
             className={`scope-tool-btn ${scopeFullscreen ? 'is-on' : ''}`}
             onClick={() => useUiStore.getState().setScopeFullscreen(!scopeFullscreen)}
             title={t('scope.fullscreen') || 'Fullscreen'}
+            aria-label={t('scope.fullscreen') || 'Fullscreen'}
             aria-pressed={scopeFullscreen}
           >
             {scopeFullscreen ? '⤡' : '⤢'}{' '}
@@ -748,7 +781,12 @@ export function Oscilloscope() {
               +
             </button>
           </div>
-          <button className="scope-tool-btn" onClick={autoFit} title={t('osc.autoScale') || 'Auto fit'}>
+          <button
+            className="scope-tool-btn"
+            onClick={autoFit}
+            title={t('osc.autoScale') || 'Auto fit'}
+            aria-label={t('osc.autoScale') || 'Auto fit'}
+          >
             ⤢ <span className="scope-tool-label">{t('osc.autoScale') || 'Fit'}</span>
           </button>
         </div>
@@ -772,6 +810,7 @@ export function Oscilloscope() {
             className={`scope-tool-btn ${showStats ? 'is-on' : ''}`}
             onClick={() => setShowStats((v) => !v)}
             title={t('osc.stats') || 'Measurements'}
+            aria-label={t('osc.stats') || 'Measurements'}
             aria-pressed={showStats}
           >
             ƒx
@@ -956,6 +995,21 @@ export function Oscilloscope() {
                       <span>{p}avg <b>{formatMag(st.avg, unit)}</b></span>
                       <span>{p}rms <b>{formatMag(st.rms, unit)}</b></span>
                       <span>{t('osc.freq') || 'Freq'} <b>{st.frequency != null ? formatMag(st.frequency, 'Hz') : '—'}</b></span>
+                      {ch.logic && (
+                        <>
+                          <span>
+                            Duty{' '}
+                            <b>
+                              {logicDutyCycle(channelSamples[ch.id]) != null
+                                ? `${(logicDutyCycle(channelSamples[ch.id])! * 100).toFixed(0)}%`
+                                : '—'}
+                            </b>
+                          </span>
+                          <span>
+                            Edges <b>{logicEdgeCount(channelSamples[ch.id])}</b>
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 );

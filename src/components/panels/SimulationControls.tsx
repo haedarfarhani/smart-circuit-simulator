@@ -77,7 +77,21 @@ export function SimulationControls() {
         <div className="sim-clock" title={t('sim.clock') || 'Simulation clock'}>
           <span className="sim-clock-label">{t('sim.time') || 't'}</span>
           <span className="sim-clock-value">{formatTime(simTime)}</span>
-          <span className="sim-clock-dt">dt = {(dt * 1e6).toFixed(0)} µs</span>
+          <label className="sim-clock-dt" title="Electrical timestep — lower it to resolve fast digital clocks">
+            dt
+            <select
+              value={String(dt)}
+              onChange={(e) =>
+                useSimulationStore.getState().setDt(parseFloat(e.target.value))
+              }
+            >
+              {[1e-3, 5e-4, 1e-4, 5e-5, 1e-5, 1e-6].map((d) => (
+                <option key={d} value={d}>
+                  {(d * 1e6).toFixed(0)} µs
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
       <div className="sim-controls-row">

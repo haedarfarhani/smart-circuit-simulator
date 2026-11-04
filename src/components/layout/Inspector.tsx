@@ -1,4 +1,4 @@
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { makeT } from '../../i18n';
 import { useCircuitStore } from '../../store/circuitStore';
 import { DEFAULT_INSPECTOR_WIDTH, useUiStore } from '../../store/uiStore';
@@ -19,6 +19,8 @@ import { ZenerAnalyzer } from '../panels/ZenerAnalyzer';
 import { UnitInput } from '../ui/UnitInput';
 import { CapacitorInspector } from './CapacitorInspector';
 import { BjtInspector } from './BjtInspector';
+import { DigitalInspector } from './DigitalInspector';
+import { isDigitalType } from '../../core/digital/types';
 
 function Field({
   label,
@@ -50,6 +52,7 @@ export function Inspector() {
   const setInspectorWidth = useUiStore((s) => s.setInspectorWidth);
   const toggleInspector = useUiStore((s) => s.toggleInspector);
   const breakpoint = useUiStore((s) => s.breakpoint);
+  const overlay = useUiStore((s) => s.overlay);
   const compact = breakpoint === 'tablet' || breakpoint === 'mobile';
   const simulationEnabled = useUiStore((s) => s.simulationEnabled);
   const snapshot = useSimulationStore((s) => s.snapshot);
@@ -68,7 +71,20 @@ export function Inspector() {
       solverResult?.componentData.get(comp.id) ??
       null);
 
-  const open = selection.length > 0 || activeTab !== 'properties';
+  // On compact breakpoints the sheet is driven ONLY by the overlay state so the
+  // backdrop can always close it. On desktop the floating panel shows whenever
+  // the user has not collapsed it — its content follows the selection.
+  const sheetOpen = compact ? overlay === 'inspector' : !inspectorCollapsed;
+
+  // Selecting something on the canvas reopens a collapsed panel — there is
+  // intentionally no big rail button, only the slim edge toggle.
+  const prevSelectionCount = useRef(0);
+  useEffect(() => {
+    if (compact) return;
+    const grew = selection.length > 0 && prevSelectionCount.current === 0;
+    prevSelectionCount.current = selection.length;
+    if (grew && inspectorCollapsed) setInspectorCollapsed(false);
+  }, [selection, compact, inspectorCollapsed, setInspectorCollapsed]);
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (compact) return;
@@ -141,27 +157,24 @@ export function Inspector() {
     },
   ] as const;
 
-  if (inspectorCollapsed && !compact) {
-    return (
-      <aside className="inspector inspector-rail" aria-label={t('inspector.title')}>
-        <button
-          type="button"
-          className="insp-rail-toggle"
-          onClick={() => setInspectorCollapsed(false)}
-          title={t('inspector.expand') || 'Open panel'}
-          aria-label={t('inspector.expand') || 'Open panel'}
-        >
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor">
-            <path d="M6.646 8l4.208-4.208-.708-.708L5.23 8l4.916 4.916.708-.708L6.646 8z" />
-          </svg>
-          <span className="insp-rail-label">{t('inspector.title')}</span>
-        </button>
-      </aside>
-    );
-  }
-
   return (
-    <aside className="inspector" data-open={open} aria-label={t('inspector.title')}>
+    <>
+      {/* Floating edge toggle: always visible, chevron flips with the panel. */}
+      <button
+        type="button"
+        className="edge-toggle edge-toggle-end"
+        data-open={sheetOpen}
+        aria-pressed={sheetOpen}
+        title={sheetOpen ? t('inspector.close') : t('inspector.open')}
+        aria-label={sheetOpen ? t('inspector.close') : t('inspector.open')}
+        onClick={toggleInspector}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m10 3-5 5 5 5" />
+        </svg>
+      </button>
+
+      <aside className="inspector" data-open={sheetOpen} aria-label={t('inspector.title')}>
       {!compact && (
         <div
           className="insp-resize-handle"
@@ -810,6 +823,10 @@ export function Inspector() {
                   </div>
                 )}
 
+                {/* Digital logic components: family, implicit supply,
+                    configuration and live logic telemetry. */}
+                {isDigitalType(comp.type) && <DigitalInspector comp={comp} />}
+
                 <Field label={t('inspector.position')}>
                   <div className="field-row">
                     <div className="coord-input-wrap">
@@ -1026,5 +1043,6 @@ export function Inspector() {
         )}
       </div>
     </aside>
+    </>
   );
 }

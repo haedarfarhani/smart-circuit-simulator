@@ -18,6 +18,7 @@
  */
 
 import type { CircuitDoc } from '../models/circuit';
+import { isDigitalType } from './digital/types';
 import type { CircuitTopology, ComponentInfo } from './solver';
 import { lampResistance } from './solver';
 
@@ -149,6 +150,13 @@ function admittanceOf(comp: ComponentInfo, omega: number, supplyVoltage: number)
     }
 
     default:
+      // Digital devices: strongly nonlinear switches with no meaningful
+      // small-signal model at logic thresholds — excluded from the AC
+      // small-signal view (documented limitation). They load the node with
+      // their input capacitance only.
+      if (isDigitalType(comp.type)) {
+        return cx(0, omega * 5e-12);
+      }
       // Resistors, switches and anything else that is an ideal resistance.
       // A component whose value is 0 has no defined impedance; the DC path
       // treats that as a strap, so this one does too.

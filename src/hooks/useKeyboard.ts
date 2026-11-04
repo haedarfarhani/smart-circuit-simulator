@@ -168,6 +168,10 @@ export function useKeyboardShortcuts(): void {
         case 'W':
           ui.setTool('wire');
           break;
+        case 'h':
+        case 'H':
+          ui.setTool('hand');
+          break;
         default:
           break;
       }
