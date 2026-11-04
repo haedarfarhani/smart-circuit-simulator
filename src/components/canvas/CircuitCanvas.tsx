@@ -15,7 +15,7 @@ import {
   MIN_ZOOM,
   useUiStore,
 } from '../../store/uiStore';
-import { SYMBOLS, switchLever, RESISTOR_BODY } from '../../core/symbols';
+import { SYMBOLS, switchLever, RESISTOR_BODY, bjtBody, LEAD_LEN } from '../../core/symbols';
 import { isZenerDiode } from '../../core/zenerModel';
 import { componentBounds, terminalWorld } from '../../core/geometry';
 import { lampBrightness, lampLoad } from '../../core/flow';
@@ -39,8 +39,10 @@ import { findNodeAt, type NodeHit } from '../../core/nodeInfo';
 import { MotorRotor } from './MotorRotor';
 import { SolenoidPlunger } from './SolenoidPlunger';
 import { CanvasHud } from './CanvasHud';
+import { CanvasContextMenu } from './CanvasContextMenu';
 import { ProbeLayer, type ProbeHoverTarget } from './ProbeLayer';
 import { useProbeStore } from '../../store/probeStore';
+import { RealPartArt } from './RealPartArt';
 
 type Mode =
   | { kind: 'idle' }
@@ -66,6 +68,8 @@ function ComponentView({
   hotTerminal,
   solverData,
   simulationEnabled,
+  onHoverPart,
+  onLeavePart,
 }: {
   c: CircuitComponent;
   selected: boolean;
@@ -74,6 +78,8 @@ function ComponentView({
   hotTerminal: [string, number] | null;
   solverData: SolverResult['componentData'] | null;
   simulationEnabled: boolean;
+  onHoverPart: (c: CircuitComponent, el: SVGGElement) => void;
+  onLeavePart: () => void;
 }) {
   const def = SYMBOLS[c.type];
   const x = c.x + (delta?.x ?? 0);
@@ -100,6 +106,8 @@ function ComponentView({
       data-lit={lit > 0.02}
       data-over={lampOverdriven}
       transform={`translate(${x},${y})`}
+      onPointerEnter={(e) => onHoverPart(c, e.currentTarget)}
+      onPointerLeave={onLeavePart}
     >
       <rect
         className="hit-box"
@@ -110,9 +118,12 @@ function ComponentView({
         rx={4}
       />
       {/* overlays live inside the rotated group: they are drawn in local
-          coordinates exactly like the symbol, so they stay locked to it */}
-      <g transform={`rotate(${c.rotation})`}>
-        {def.body}
+          coordinates exactly like the symbol, so they stay locked to it.
+          scale(-1,1) mirrors in local space first, matching terminalWorld. */}
+      <g transform={`rotate(${c.rotation}) scale(${c.mirrored ? -1 : 1},1)`}>
+        {c.type === 'bjtTransistor'
+          ? bjtBody(c.transistorType ?? 'npn')
+          : def.body}
 
         {/* 1. Switch Active/Closed Indicator */}
         {c.type === 'switch' && switchLever(c.value === 1)}
@@ -202,6 +213,55 @@ function ComponentView({
               strokeWidth={2.6}
               style={{ filter: 'drop-shadow(0 0 4px #38bdf8)' }}
             />
+          </g>
+        )}
+
+        {/* 4b. BJT operating-region glow and base-drive indication.
+            The glow is a soft halo around the symbol; the symbol itself is
+            never distorted or recoloured. */}
+        {c.type === 'bjtTransistor' && simulationEnabled && compSolution?.bjt && (
+          <g className="bjt-region-glow" pointerEvents="none">
+            {(() => {
+              const bjt = compSolution.bjt!;
+              const tone = bjt.breakdownWarning
+                ? '#ef4444'
+                : bjt.thermalState === 'critical' || bjt.thermalState === 'high'
+                  ? '#f97316'
+                  : bjt.region === 'saturation'
+                    ? '#f59e0b'
+                    : bjt.region === 'forward-active' || bjt.region === 'reverse-active'
+                      ? '#22c55e'
+                      : 'transparent';
+              const active = bjt.region !== 'cutoff' || bjt.breakdownWarning;
+              return (
+                <>
+                  {active && (
+                    <circle
+                      cx={0}
+                      cy={-3}
+                      r={30}
+                      fill={tone}
+                      fillOpacity={0.10}
+                      stroke={tone}
+                      strokeOpacity={0.35}
+                      strokeWidth={1.2}
+                    />
+                  )}
+                  {Math.abs(bjt.ib) > 1e-9 && (
+                    <line
+                      x1={-LEAD_LEN}
+                      y1={0}
+                      x2={-20}
+                      y2={0}
+                      stroke="#38bdf8"
+                      strokeWidth={1.4 + Math.min(2.6, Math.abs(bjt.ib) * 2000)}
+                      strokeLinecap="round"
+                      opacity={0.9}
+                    />
+                  )}
+                </>
+              );
+            })()}
           </g>
         )}
 
@@ -604,6 +664,16 @@ export function CircuitCanvas() {
   const cursorRef = useRef<HTMLSpanElement>(null);
   const modeRef = useRef<Mode>({ kind: 'idle' });
   const initializedRef = useRef(false);
+  /** active pointers, for multi-touch pinch-zoom + two-finger pan */
+  const pointersRef = useRef<Map<number, Point>>(new Map());
+  const pinchRef = useRef<{
+    startDist: number;
+    startZoom: number;
+    startMidX: number;
+    startMidY: number;
+    panX0: number;
+    panY0: number;
+  } | null>(null);
 
   const doc = useCircuitStore((s) => s.doc);
   const tool = useUiStore((s) => s.tool);
@@ -622,6 +692,13 @@ export function CircuitCanvas() {
   const [isPanning, setIsPanning] = useState(false);
   const [hoverWireId, setHoverWireId] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<NodeHit | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [hoveredPart, setHoveredPart] = useState<{
+    comp: CircuitComponent;
+    left: number;
+    top: number;
+    below: boolean;
+  } | null>(null);
   /** press position of an in-progress wiring gesture (enables drag-to-connect) */
   const wireGestureRef = useRef<{
     x: number;
@@ -648,6 +725,28 @@ export function CircuitCanvas() {
     } catch {
       // capture is best-effort (synthetic events / touch)
     }
+  };
+
+  /** Switch to a two-finger pinch/pan gesture, aborting any single-pointer mode. */
+  const enterPinchMode = () => {
+    modeRef.current = { kind: 'idle' };
+    setDragDelta(null);
+    setMarquee(null);
+    setIsPanning(false);
+    wireGestureRef.current = null;
+    for (const id of pointersRef.current.keys()) capture(id);
+    const pts = [...pointersRef.current.values()];
+    const ui = useUiStore.getState();
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    pinchRef.current = {
+      startDist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      startZoom: ui.zoom,
+      startMidX: (a.x + b.x) / 2,
+      startMidY: (a.y + b.y) / 2,
+      panX0: ui.panX,
+      panY0: ui.panY,
+    };
   };
 
   const toWorld = (clientX: number, clientY: number): Point => {
@@ -811,14 +910,48 @@ export function CircuitCanvas() {
     });
   }, [draft, doc]);
 
+  /* ---------- real-world part preview ---------- */
+
+  const handleHoverPart = (comp: CircuitComponent, el: SVGGElement) => {
+    // A preview must never fight with wiring, dragging, or a non-select tool.
+    if (tool !== 'select' || draft || modeRef.current.kind !== 'idle') return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    const CARD_W = 236;
+    const CARD_H = 224;
+    const GAP = 10;
+    const centerX = rect.left - wrapRect.left + rect.width / 2;
+    const top = rect.top - wrapRect.top;
+    const left = clamp(centerX - CARD_W / 2, 8, Math.max(8, wrapRect.width - CARD_W - 8));
+    const below = top < CARD_H + GAP;
+    setHoveredPart({
+      comp,
+      left,
+      top: below ? rect.bottom - wrapRect.top + GAP : top - GAP,
+      below,
+    });
+  };
+
+  const clearHoverPart = () => setHoveredPart(null);
+
   /* ---------- pointer interactions ---------- */
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     const svg = svgRef.current;
     if (!svg) return;
+    setHoveredPart(null);
     const ui = useUiStore.getState();
     const world = toWorld(e.clientX, e.clientY);
     const target = e.target as Element;
+
+    // Two-finger touch → pinch-zoom / pan gesture (never place or select).
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size >= 2 && e.pointerType !== 'mouse') {
+      enterPinchMode();
+      return;
+    }
 
     // Pan: middle mouse, or Space + any button
     if (e.button === 1 || (e.button === 0 && spaceHeld)) {
@@ -1004,6 +1137,37 @@ export function CircuitCanvas() {
       cursorRef.current.textContent = `${Math.round(world.x)}, ${Math.round(world.y)}`;
     }
 
+    // Active pinch/pan gesture owns the pointer.
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    const pinch = pinchRef.current;
+    if (pinch && pointersRef.current.size >= 2) {
+      const svg = svgRef.current;
+      if (svg) {
+        const ui = useUiStore.getState();
+        const [a, b] = [...pointersRef.current.values()];
+        const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+        const midX = (a.x + b.x) / 2;
+        const midY = (a.y + b.y) / 2;
+        const rect = svg.getBoundingClientRect();
+        const newZoom = clamp(
+          pinch.startZoom * (dist / pinch.startDist),
+          MIN_ZOOM,
+          MAX_ZOOM,
+        );
+        const k = newZoom / pinch.startZoom;
+        // Keep the world point that sat under the initial midpoint under the
+        // moving midpoint: pan = mid - rect.origin - world0 * newZoom.
+        ui.setView({
+          zoom: newZoom,
+          panX: midX - rect.left - (pinch.startMidX - rect.left - pinch.panX0) * k,
+          panY: midY - rect.top - (pinch.startMidY - rect.top - pinch.panY0) * k,
+        });
+      }
+      return;
+    }
+
     const mode = modeRef.current;
     const ui = useUiStore.getState();
 
@@ -1068,6 +1232,21 @@ export function CircuitCanvas() {
   };
 
   const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    // Ending a pinch gesture: no click/select side effects.
+    if (pointersRef.current.delete(e.pointerId) && pinchRef.current) {
+      if (pointersRef.current.size < 2) pinchRef.current = null;
+      modeRef.current = { kind: 'idle' };
+      setDragDelta(null);
+      setMarquee(null);
+      setIsPanning(false);
+      try {
+        svgRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        // pointer may already be released
+      }
+      return;
+    }
+
     const mode = modeRef.current;
     const ui = useUiStore.getState();
     const store = useCircuitStore.getState();
@@ -1223,6 +1402,7 @@ export function CircuitCanvas() {
     const id = store.addComponent(type, world.x, world.y);
     if (id) {
       ui.select([id]);
+      ui.recordRecent(type);
       ui.setStatus('status.placed');
     }
   };
@@ -1286,7 +1466,11 @@ export function CircuitCanvas() {
   }, [componentData, simValid, simulationEnabled, doc]);
 
   return (
-    <div className="canvas-wrap">
+    <div
+      className="canvas-wrap"
+      ref={wrapRef}
+      onWheel={clearHoverPart}
+    >
       <svg
         ref={svgRef}
         className="canvas-svg"
@@ -1484,6 +1668,8 @@ export function CircuitCanvas() {
               }
               zoom={zoom}
               hotTerminal={draft?.hoverTerminal ?? null}
+              onHoverPart={handleHoverPart}
+              onLeavePart={clearHoverPart}
               solverData={componentData}
               simulationEnabled={simulationEnabled}
             />
@@ -1528,6 +1714,34 @@ export function CircuitCanvas() {
         </div>
       )}
 
+      {hoveredPart && (
+        <div
+          className={`part-hover-card${hoveredPart.below ? ' is-below' : ''}`}
+          style={{ left: hoveredPart.left, top: hoveredPart.top }}
+          role="tooltip"
+        >
+          <div className="part-hover-head">
+            <div className="part-hover-titles">
+              <div className="part-hover-name">{hoveredPart.comp.label}</div>
+              <div className="part-hover-type">
+                {t(`lib.component.${hoveredPart.comp.type}`)}
+              </div>
+            </div>
+            {SYMBOLS[hoveredPart.comp.type].unit !== '' && (
+              <span className="part-hover-value">
+                {formatValue(
+                  hoveredPart.comp.value,
+                  SYMBOLS[hoveredPart.comp.type].unit,
+                )}
+              </span>
+            )}
+          </div>
+          <div className="part-hover-art">
+            <RealPartArt type={hoveredPart.comp.type} />
+          </div>
+        </div>
+      )}
+
       {simulationEnabled && hoveredNode && !draft && (
         <NodePopup
           doc={doc}
@@ -1541,6 +1755,7 @@ export function CircuitCanvas() {
       )}
 
       <CanvasHud />
+      <CanvasContextMenu />
 
       <span
         className="cursor-chip"

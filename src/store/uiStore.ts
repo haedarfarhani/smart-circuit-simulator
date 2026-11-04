@@ -29,6 +29,7 @@ export type BottomPanelTab =
 export type Locale = 'en' | 'fa';
 export type DialogKind =
   | 'about'
+  | 'confirm-new'
   | 'transfer-import'
   | 'transfer-export'
   | 'settings'
@@ -73,6 +74,8 @@ export interface Prefs {
   currentDirection: CurrentDirection;
   /** bottom panel height in px (oscilloscope screen area) */
   bottomPanelHeight: number;
+  /** right properties panel width in px */
+  inspectorWidth: number;
   inspectorCollapsed: boolean;
   vizColors: VizColors;
   onboardingDone: boolean;
@@ -83,6 +86,9 @@ export interface Prefs {
 export const MIN_BOTTOM_PANEL_HEIGHT = 200;
 export const MAX_BOTTOM_PANEL_HEIGHT = 720;
 export const DEFAULT_BOTTOM_PANEL_HEIGHT = 290;
+export const MIN_INSPECTOR_WIDTH = 280;
+export const MAX_INSPECTOR_WIDTH = 720;
+export const DEFAULT_INSPECTOR_WIDTH = 320;
 
 function loadPrefs(): Prefs {
   const fallback: Prefs = {
@@ -94,6 +100,7 @@ function loadPrefs(): Prefs {
     simulationSpeed: 1,
     currentDirection: 'conventional',
     bottomPanelHeight: DEFAULT_BOTTOM_PANEL_HEIGHT,
+    inspectorWidth: DEFAULT_INSPECTOR_WIDTH,
     inspectorCollapsed: false,
     vizColors: { ...DEFAULT_VIZ_COLORS },
     onboardingDone: false,
@@ -114,6 +121,10 @@ function loadPrefs(): Prefs {
             MAX_BOTTOM_PANEL_HEIGHT,
           )
         : DEFAULT_BOTTOM_PANEL_HEIGHT;
+    const width =
+      typeof p.inspectorWidth === 'number' && Number.isFinite(p.inspectorWidth)
+        ? clamp(p.inspectorWidth, MIN_INSPECTOR_WIDTH, MAX_INSPECTOR_WIDTH)
+        : DEFAULT_INSPECTOR_WIDTH;
     const theme: Theme =
       p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark';
     return {
@@ -125,6 +136,7 @@ function loadPrefs(): Prefs {
       simulationSpeed: typeof p.simulationSpeed === 'number' ? p.simulationSpeed : 1,
       currentDirection: p.currentDirection === 'electron' ? 'electron' : 'conventional',
       bottomPanelHeight: height,
+      inspectorWidth: width,
       inspectorCollapsed: p.inspectorCollapsed === true,
       vizColors: { ...DEFAULT_VIZ_COLORS, ...(p.vizColors ?? {}) },
       onboardingDone: p.onboardingDone === true,
@@ -171,6 +183,7 @@ export interface UiState {
   bottomPanelOpen: boolean;
   /** height of the bottom panel (resizable via drag handle) */
   bottomPanelHeight: number;
+  inspectorWidth: number;
   sidebarCollapsed: boolean;
   inspectorCollapsed: boolean;
   overlay: OverlayPanel;
@@ -206,6 +219,7 @@ export interface UiState {
   setSidebarCollapsed(v: boolean): void;
   toggleSidebar(): void;
   setInspectorCollapsed(v: boolean): void;
+  setInspectorWidth(w: number, persist?: boolean): void;
   toggleInspector(): void;
   setOverlay(v: OverlayPanel): void;
   setBreakpoint(bp: Breakpoint): void;
@@ -242,6 +256,7 @@ export const useUiStore = create<UiState>((set, get) => {
     bottomPanelTab: 'simulation',
     bottomPanelOpen: false,
     bottomPanelHeight: prefs.bottomPanelHeight,
+    inspectorWidth: prefs.inspectorWidth,
     sidebarCollapsed: false,
     inspectorCollapsed: prefs.inspectorCollapsed,
     overlay: 'none',
@@ -339,6 +354,11 @@ export const useUiStore = create<UiState>((set, get) => {
       set({ inspectorCollapsed: v });
       persistPrefs({ ...prefsFrom(get()), inspectorCollapsed: v });
     },
+    setInspectorWidth: (w, persist = true) => {
+      const width = clamp(Math.round(w), MIN_INSPECTOR_WIDTH, MAX_INSPECTOR_WIDTH);
+      set({ inspectorWidth: width });
+      if (persist) persistPrefs({ ...prefsFrom(get()), inspectorWidth: width });
+    },
     toggleInspector: () => {
       const bp = get().breakpoint;
       if (bp === 'tablet' || bp === 'mobile') {
@@ -399,6 +419,7 @@ function prefsFrom(s: UiState): Prefs {
     simulationSpeed: s.simulationSpeed,
     currentDirection: s.currentDirection,
     bottomPanelHeight: s.bottomPanelHeight,
+    inspectorWidth: s.inspectorWidth,
     inspectorCollapsed: s.inspectorCollapsed,
     vizColors: s.vizColors,
     onboardingDone: s.onboardingDone,

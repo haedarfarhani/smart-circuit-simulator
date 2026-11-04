@@ -7,6 +7,7 @@ import {
   stepSimulation,
   DEFAULT_DT,
 } from '../core/simulationEngine';
+import { seedCapacitorState, type CapacitorRuntimeStats } from '../core/capacitorModel';
 import { useCircuitStore } from './circuitStore';
 import { useUiStore } from './uiStore';
 import { useProbeStore } from './probeStore';
@@ -95,6 +96,10 @@ export interface SimulationState {
   capacitorVoltage: Map<string, number>;
   inductorCurrent: Map<string, number>;
   zenerJunctionTemp: Map<string, number>;
+  capacitorCurrent: Map<string, number>;
+  capacitorTemperature: Map<string, number>;
+  capacitorStats: Map<string, CapacitorRuntimeStats>;
+  bjtJunctionTemp: Map<string, number>;
 
   // Controls
   start: () => void;
@@ -128,6 +133,10 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
     capacitorVoltage: new Map(),
     inductorCurrent: new Map(),
     zenerJunctionTemp: new Map(),
+    capacitorCurrent: new Map(),
+    capacitorTemperature: new Map(),
+    capacitorStats: new Map(),
+    bjtJunctionTemp: new Map(),
 
     start: () => {
       const s = get();
@@ -135,6 +144,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         // Re-initialise engine state from fresh document
         const doc = useCircuitStore.getState().doc;
         const topology = buildTopology(doc);
+        const seeded = seedCapacitorState(doc);
         set({
           status: 'running',
           simTime: 0,
@@ -144,9 +154,13 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
           channelSamples: emptyChannelSamples(),
           errors: [],
           warnings: [],
-          capacitorVoltage: new Map(),
+          capacitorVoltage: seeded.capacitorVoltage,
           inductorCurrent: new Map(),
           zenerJunctionTemp: new Map(),
+          capacitorCurrent: seeded.capacitorCurrent,
+          capacitorTemperature: seeded.capacitorTemperature,
+          capacitorStats: seeded.capacitorStats,
+          bjtJunctionTemp: new Map(),
         });
         // Re-calc topology/analysis for the analyzer panel
         const result = solveCircuit(doc);
@@ -176,6 +190,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
       const topology = buildTopology(doc);
       const result = solveCircuit(doc);
       const analysis = analyzeCircuit(doc, topology, result);
+      const seeded = seedCapacitorState(doc);
       set({
         status: 'stopped',
         simTime: 0,
@@ -187,9 +202,12 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         warnings: [...analysis.warnings],
         analysis,
         solverResult: result,
-        capacitorVoltage: new Map(),
+        capacitorVoltage: seeded.capacitorVoltage,
         inductorCurrent: new Map(),
         zenerJunctionTemp: new Map(),
+        capacitorCurrent: seeded.capacitorCurrent,
+        capacitorTemperature: seeded.capacitorTemperature,
+        capacitorStats: seeded.capacitorStats,
       });
     },
 
@@ -206,6 +224,10 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
         capacitorVoltage: s.capacitorVoltage ?? new Map(),
         inductorCurrent: s.inductorCurrent ?? new Map(),
         zenerJunctionTemp: s.zenerJunctionTemp ?? new Map(),
+        capacitorCurrent: s.capacitorCurrent ?? new Map(),
+        capacitorTemperature: s.capacitorTemperature ?? new Map(),
+        capacitorStats: s.capacitorStats ?? new Map(),
+        bjtJunctionTemp: s.bjtJunctionTemp ?? new Map(),
         simTime: s.simTime,
         status: 'paused',
         snapshot: s.snapshot,
@@ -249,6 +271,9 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
           capacitorVoltage: engineState.capacitorVoltage,
           inductorCurrent: engineState.inductorCurrent,
           zenerJunctionTemp: engineState.zenerJunctionTemp ?? new Map(),
+          capacitorCurrent: engineState.capacitorCurrent ?? new Map(),
+          capacitorTemperature: engineState.capacitorTemperature ?? new Map(),
+          capacitorStats: engineState.capacitorStats ?? new Map(),
           samples: ns.length > st.maxSamples ? ns.slice(-st.maxSamples) : ns,
           channelSamples: nextChannels,
         };
@@ -331,6 +356,10 @@ function electricalLoop() {
     let capacitorVoltage = store.capacitorVoltage ?? new Map<string, number>();
     let inductorCurrent = store.inductorCurrent ?? new Map<string, number>();
     let zenerJunctionTemp = store.zenerJunctionTemp ?? new Map<string, number>();
+    let capacitorCurrent = store.capacitorCurrent ?? new Map<string, number>();
+    let capacitorTemperature = store.capacitorTemperature ?? new Map<string, number>();
+    let capacitorStats = store.capacitorStats ?? new Map<string, CapacitorRuntimeStats>();
+    let bjtJunctionTemp = store.bjtJunctionTemp ?? new Map<string, number>();
     let simTime = store.simTime;
     let snapshot = store.snapshot;
     let samples = store.samples;
@@ -354,6 +383,10 @@ function electricalLoop() {
         capacitorVoltage,
         inductorCurrent,
         zenerJunctionTemp,
+        capacitorCurrent,
+        capacitorTemperature,
+        capacitorStats,
+        bjtJunctionTemp,
         simTime,
         status: 'running',
         snapshot,
@@ -366,6 +399,13 @@ function electricalLoop() {
       capacitorVoltage = engineState.capacitorVoltage;
       inductorCurrent = engineState.inductorCurrent;
       zenerJunctionTemp = engineState.zenerJunctionTemp ?? new Map<string, number>();
+      capacitorCurrent = engineState.capacitorCurrent ?? new Map<string, number>();
+      capacitorTemperature =
+        engineState.capacitorTemperature ?? new Map<string, number>();
+      capacitorStats =
+        engineState.capacitorStats ?? new Map<string, CapacitorRuntimeStats>();
+      bjtJunctionTemp =
+        engineState.bjtJunctionTemp ?? new Map<string, number>();
       simTime = snap.simTime;
       snapshot = snap;
 
@@ -435,6 +475,9 @@ function electricalLoop() {
         capacitorVoltage,
         inductorCurrent,
         zenerJunctionTemp,
+        capacitorCurrent,
+        capacitorTemperature,
+        capacitorStats,
         samples,
         channelSamples,
         errors,

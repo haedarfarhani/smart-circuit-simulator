@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { CircuitDoc } from '../../models/circuit';
 import { SYMBOLS } from '../../core/symbols';
 import { DEFAULT_SOLENOID_INDUCTANCE } from '../../models/circuit';
+import { isCapacitorType } from '../../core/capacitorModel';
 import { useSimulationStore } from '../../store/simulationStore';
 import {
   capacitorEnergy,
@@ -24,6 +25,17 @@ interface EnergyItem {
   refEnergy: number;
   /** the physical time constant shown to the user */
   physicalTau: number;
+  /** warning derived from the solved capacitor state, if any */
+  warning: string | null;
+  /** solved body temperature (°C) for polarized capacitors */
+  temperature: number | null;
+  /** component centre, for the measured temperature glow / alarm ring */
+  cx: number;
+  cy: number;
+  /** 0..1 glow strength derived from the solved temperature */
+  glow: number;
+  /** true when the solved capacitor state raised a safety warning */
+  alarm: boolean;
 }
 
 const BAR_W = 60;
@@ -55,7 +67,7 @@ export function StoredEnergyLayer({
       ? Math.abs(supply.value)
       : 0;
     const resistances = doc.components
-      .filter((c) => c.type !== 'capacitor' && c.type !== 'battery')
+      .filter((c) => !isCapacitorType(c.type) && c.type !== 'battery')
       .map((c) => c.value);
     const rEq = estimateLoopResistance(
       supplyVoltage,
@@ -65,28 +77,51 @@ export function StoredEnergyLayer({
 
     const out: EnergyItem[] = [];
     for (const comp of doc.components) {
-      if (comp.type !== 'capacitor' && comp.type !== 'solenoid') continue;
+      if (!isCapacitorType(comp.type) && comp.type !== 'solenoid') continue;
       const sol = snapshot.componentData.get(comp.id);
       if (!sol) continue;
       const def = SYMBOLS[comp.type];
       const halfH = def.h / 2;
       const baseY = comp.y + halfH + 48;
 
-      if (comp.type === 'capacitor') {
+      if (isCapacitorType(comp.type)) {
         const c = Math.abs(comp.value);
         const vCap = sol.voltage; // actual capacitor voltage at this instant
         const physicalTau = rcTimeConstant(rEq, c);
+        const cap = sol.capacitor;
+        const warning = cap
+          ? cap.breakdown
+            ? '⚠ BD'
+            : cap.polarity === 'reverse'
+              ? '⚠ REV'
+              : cap.overvoltage
+                ? '⚠ OV'
+                : cap.overRipple
+                  ? '⚠ RIP'
+                  : cap.thermalState === 'hot' || cap.thermalState === 'over'
+                    ? '⚠ HOT'
+                    : null
+          : null;
         out.push({
           id: comp.id,
           label: comp.label,
           kind: 'capacitor',
           x: comp.x,
           y: baseY,
-          // E = ½CV² from the solved state
-          energy: capacitorEnergy(c, vCap),
+          // E = ½CV² from the solved capacitor voltage
+          energy: cap?.energy ?? capacitorEnergy(c, vCap),
           // reference: fully charged to the supply
           refEnergy: capacitorEnergy(c, supplyVoltage),
           physicalTau,
+          warning,
+          temperature: cap?.temperature ?? null,
+          cx: comp.x,
+          cy: comp.y,
+          glow:
+            cap?.temperature != null
+              ? Math.max(0, Math.min(1, (cap.temperature - 45) / 50))
+              : 0,
+          alarm: warning !== null,
         });
       } else {
         // Solenoid / inductor
@@ -105,6 +140,12 @@ export function StoredEnergyLayer({
           // reference: steady-state current through the loop
           refEnergy: inductorEnergy(l, iSteady),
           physicalTau,
+          warning: null,
+          temperature: null,
+          cx: comp.x,
+          cy: comp.y,
+          glow: 0,
+          alarm: false,
         });
       }
     }
@@ -122,21 +163,47 @@ export function StoredEnergyLayer({
             : 0;
         const filled = fraction * BAR_W;
         const isCap = item.kind === 'capacitor';
-        const color = isCap ? '#38bdf8' : '#fbbf24';
+        const color = item.warning
+          ? '#ef4444'
+          : isCap
+            ? '#38bdf8'
+            : '#fbbf24';
 
         return (
-          <g
-            key={item.id}
-            className="stored-energy"
-            transform={`translate(${item.x},${item.y})`}
-          >
+          <g key={item.id}>
+            {item.glow > 0.02 && (
+              <circle
+                cx={item.cx}
+                cy={item.cy}
+                r={46}
+                fill="#f97316"
+                opacity={0.18 * item.glow}
+                style={{ filter: 'blur(6px)' }}
+              />
+            )}
+            {item.alarm && (
+              <circle
+                cx={item.cx}
+                cy={item.cy}
+                r={52}
+                fill="none"
+                stroke="#ef4444"
+                strokeWidth={1.5}
+                strokeDasharray="6 5"
+                opacity={0.75}
+              />
+            )}
+            <g
+              className="stored-energy"
+              transform={`translate(${item.x},${item.y})`}
+            >
             {/* Dark protective card backdrop to avoid any text collision */}
             <rect
               className="stored-energy-bg"
               x={-BAR_W / 2 - 6}
               y={-14}
               width={BAR_W + 12}
-              height={BAR_H + 26}
+              height={BAR_H + (item.warning ? 38 : 26)}
               rx={6}
               fill="rgba(6, 10, 16, 0.92)"
               stroke="rgba(255, 255, 255, 0.12)"
@@ -190,7 +257,21 @@ export function StoredEnergyLayer({
               fontFamily="var(--font-mono)"
             >
               τ: {formatTau(item.physicalTau)}
+              {item.temperature != null ? ` · ${item.temperature.toFixed(0)}°C` : ''}
             </text>
+            {item.warning && (
+              <text
+                textAnchor="middle"
+                y={BAR_H + 21}
+                fill="#ef4444"
+                fontSize={8.5}
+                fontWeight="700"
+                fontFamily="var(--font-mono)"
+              >
+                {item.warning}
+              </text>
+            )}
+            </g>
           </g>
         );
       })}

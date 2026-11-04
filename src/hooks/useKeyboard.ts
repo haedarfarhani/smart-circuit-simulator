@@ -45,6 +45,29 @@ export function useKeyboardShortcuts(): void {
 
       if (mod) {
         const key = e.key.toLowerCase();
+        if (key === 'n') {
+          e.preventDefault();
+          // New circuit: empty workspace replaces immediately, otherwise confirm.
+          if (store.doc.components.length === 0) {
+            store.newCircuit();
+            ui.clearSelection();
+            ui.setWireDraft(null);
+            ui.setStatus('status.ready');
+          } else {
+            ui.setDialog('confirm-new');
+          }
+          return;
+        }
+        if (key === 's') {
+          e.preventDefault();
+          ui.setDialog('transfer-export');
+          return;
+        }
+        if (key === 'o') {
+          e.preventDefault();
+          ui.setDialog('transfer-import');
+          return;
+        }
         if (key === 'z') {
           e.preventDefault();
           if (e.shiftKey) store.redo();
@@ -61,6 +84,7 @@ export function useKeyboardShortcuts(): void {
         if (key === 'c') {
           e.preventDefault();
           copySelection();
+          if (ui.selection.length > 0) ui.setStatus('dialog.copied');
           return;
         }
         if (key === 'v') {
@@ -117,8 +141,22 @@ export function useKeyboardShortcuts(): void {
             store.doc.components.some((c) => c.id === id),
           )) {
             e.preventDefault();
-            store.rotateComponents(ui.selection);
-            ui.setStatus('status.rotated');
+            if (e.shiftKey) {
+              // Shift+R mirrors the selected components horizontally.
+              const ids = ui.selection.filter((id) =>
+                store.doc.components.some((c) => c.id === id),
+              );
+              store.updateComponents(ids, {
+                mirrored: !ids.every(
+                  (id) =>
+                    store.doc.components.find((c) => c.id === id)?.mirrored,
+                ),
+              });
+              ui.setStatus('status.mirrored');
+            } else {
+              store.rotateComponents(ui.selection);
+              ui.setStatus('status.rotated');
+            }
           }
           break;
         }

@@ -15,11 +15,20 @@ import {
   type WireJunction,
 } from '../models/circuit';
 import { SYMBOLS } from '../core/symbols';
+import { applyCapacitorPreset, DEFAULT_CAPACITOR_PRESET } from '../core/capacitorModel';
 import { labelsFor } from '../core/labels';
 import { offsetWire } from '../core/wirePath';
 
 const HISTORY_LIMIT = 100;
 const DOC_STORAGE_KEY = 'circuit-lab:doc';
+
+/**
+ * Consecutive commits sharing an edit tag within this window collapse into a
+ * single undo step, so typing in the inspector doesn't spam the history.
+ */
+const COALESCE_MS = 900;
+let coalesceTag: string | null = null;
+let coalesceAt = 0;
 
 export interface CircuitState {
   doc: CircuitDoc;
@@ -29,7 +38,7 @@ export interface CircuitState {
   lastChange: number;
   savedAt: number | null;
 
-  commit(mutate: (doc: CircuitDoc) => void): void;
+  commit(mutate: (doc: CircuitDoc) => void, tag?: string): void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;
@@ -40,7 +49,11 @@ export interface CircuitState {
     type: ComponentType,
     center: Point,
   ): string | null;
-  updateComponents(ids: string[], patch: Partial<CircuitComponent>): void;
+  updateComponents(
+    ids: string[],
+    patch: Partial<CircuitComponent>,
+    tag?: string,
+  ): void;
   moveComponents(ids: string[], dx: number, dy: number): void;
   moveWires(ids: string[], dx: number, dy: number): void;
   rotateComponents(ids: string[]): void;
@@ -89,15 +102,20 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
   lastChange: 0,
   savedAt: null,
 
-  commit(mutate) {
+  commit(mutate, tag?) {
     const { doc, past } = get();
     const next = cloneDoc(doc);
     mutate(next);
+    const now = Date.now();
+    const coalesce =
+      tag !== undefined && tag === coalesceTag && now - coalesceAt < COALESCE_MS;
+    coalesceTag = tag ?? null;
+    coalesceAt = now;
     set({
       doc: next,
-      past: [...past, cloneDoc(doc)].slice(-HISTORY_LIMIT),
+      past: coalesce ? past : [...past, cloneDoc(doc)].slice(-HISTORY_LIMIT),
       future: [],
-      lastChange: Date.now(),
+      lastChange: now,
     });
   },
 
@@ -143,6 +161,11 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     if (SYMBOLS[type].defaultInductance !== undefined) {
       comp.inductance = SYMBOLS[type].defaultInductance;
     }
+    if (type === 'polarized-capacitor') {
+      // New parts start as a real datasheet-type electrolytic, not as an
+      // ideal capacitor with hidden zeros for ESR/leakage/thermal data.
+      Object.assign(comp, applyCapacitorPreset(DEFAULT_CAPACITOR_PRESET));
+    }
     get().commit((d) => {
       d.components.push(comp);
     });
@@ -153,13 +176,13 @@ export const useCircuitStore = create<CircuitState>((set, get) => ({
     return get().addComponent(type, center.x, center.y);
   },
 
-  updateComponents(ids, patch) {
+  updateComponents(ids, patch, tag) {
     const idSet = new Set(ids);
     get().commit((d) => {
       for (const c of d.components) {
         if (idSet.has(c.id)) Object.assign(c, patch);
       }
-    });
+    }, tag);
   },
 
   moveComponents(ids, dx, dy) {

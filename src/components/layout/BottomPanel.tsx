@@ -4,6 +4,8 @@ import { makeT } from '../../i18n';
 import { Oscilloscope } from '../panels/Oscilloscope';
 import { AnalyzerPanel } from '../panels/AnalyzerPanel';
 import { SimulationControls } from '../panels/SimulationControls';
+import { MeasurementsPanel } from '../panels/MeasurementsPanel';
+import { SimConsole } from '../panels/SimConsole';
 
 export function BottomPanel() {
   const locale = useUiStore((s) => s.locale);
@@ -51,7 +53,8 @@ export function BottomPanel() {
   const tabs = [
     { id: 'simulation', label: t('tab.simulation') || 'Simulation' },
     { id: 'oscilloscope', label: t('tab.oscilloscope') || 'Oscilloscope' },
-    { id: 'measurements', label: t('tab.measurements') || 'Measurements' }
+    { id: 'measurements', label: t('tab.measurements') || 'Measurements' },
+    { id: 'console', label: t('tab.console') || 'Console' }
   ] as const;
 
   return (
@@ -110,13 +113,8 @@ export function BottomPanel() {
             <AnalyzerPanel />
           </>
         )}
-        {tab === 'measurements' && (
-          <div className="panel-empty">
-            {locale === 'fa'
-              ? 'قطعاتی را انتخاب کنید تا اندازه‌گیری‌های بلادرنگ نمایش داده شود'
-              : 'Select components to view real-time measurements'}
-          </div>
-        )}
+        {tab === 'measurements' && <MeasurementsPanel />}
+        {tab === 'console' && <SimConsole />}
       </div>
     </div>
   );

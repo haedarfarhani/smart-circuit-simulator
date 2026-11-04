@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { makeT } from '../../i18n';
 import { useCircuitStore } from '../../store/circuitStore';
-import { useUiStore } from '../../store/uiStore';
+import { DEFAULT_INSPECTOR_WIDTH, useUiStore } from '../../store/uiStore';
 import { useSimulationStore } from '../../store/simulationStore';
-import { SYMBOLS, switchLever } from '../../core/symbols';
+import { SYMBOLS, switchLever, bjtBody } from '../../core/symbols';
 import { formatValue } from '../../core/labels';
 import { AnalyzerPanel } from '../panels/AnalyzerPanel';
 import { LearningPanel } from '../panels/LearningPanel';
@@ -16,6 +16,9 @@ import {
   applyZenerPreset,
 } from '../../core/zenerModel';
 import { ZenerAnalyzer } from '../panels/ZenerAnalyzer';
+import { UnitInput } from '../ui/UnitInput';
+import { CapacitorInspector } from './CapacitorInspector';
+import { BjtInspector } from './BjtInspector';
 
 function Field({
   label,
@@ -41,6 +44,13 @@ export function Inspector() {
 
   const activeTab = useUiStore((s) => s.inspectorTab);
   const setTab = useUiStore((s) => s.setInspectorTab);
+  const inspectorCollapsed = useUiStore((s) => s.inspectorCollapsed);
+  const setInspectorCollapsed = useUiStore((s) => s.setInspectorCollapsed);
+  const inspectorWidth = useUiStore((s) => s.inspectorWidth);
+  const setInspectorWidth = useUiStore((s) => s.setInspectorWidth);
+  const toggleInspector = useUiStore((s) => s.toggleInspector);
+  const breakpoint = useUiStore((s) => s.breakpoint);
+  const compact = breakpoint === 'tablet' || breakpoint === 'mobile';
   const simulationEnabled = useUiStore((s) => s.simulationEnabled);
   const snapshot = useSimulationStore((s) => s.snapshot);
   const solverResult = useSimulationStore((s) => s.solverResult);
@@ -59,6 +69,29 @@ export function Inspector() {
       null);
 
   const open = selection.length > 0 || activeTab !== 'properties';
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (compact) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = inspectorWidth;
+    const rtl = document.documentElement.dir === 'rtl';
+    const move = (ev: PointerEvent) => {
+      const delta = ev.clientX - startX;
+      // The panel sits on the inline-end edge: dragging towards the canvas
+      // widens it, and the sign flips in RTL.
+      setInspectorWidth(startWidth + (rtl ? delta : -delta), false);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      document.body.classList.remove('resizing-inspector');
+      setInspectorWidth(useUiStore.getState().inspectorWidth, true);
+    };
+    document.body.classList.add('resizing-inspector');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+  };
 
   const endLabel = (end: { componentId: string | null; terminalIndex: number; point: { x: number; y: number } | null }) => {
     if (end.componentId) {
@@ -108,19 +141,63 @@ export function Inspector() {
     },
   ] as const;
 
+  if (inspectorCollapsed && !compact) {
+    return (
+      <aside className="inspector inspector-rail" aria-label={t('inspector.title')}>
+        <button
+          type="button"
+          className="insp-rail-toggle"
+          onClick={() => setInspectorCollapsed(false)}
+          title={t('inspector.expand') || 'Open panel'}
+          aria-label={t('inspector.expand') || 'Open panel'}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor">
+            <path d="M6.646 8l4.208-4.208-.708-.708L5.23 8l4.916 4.916.708-.708L6.646 8z" />
+          </svg>
+          <span className="insp-rail-label">{t('inspector.title')}</span>
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="inspector" data-open={open} aria-label={t('inspector.title')}>
-      <div className="inspector-tabs">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setTab(tab.id)}
-          >
-            <span className="tab-btn-icon">{tab.icon}</span>
-            <span className="tab-btn-label">{tab.label}</span>
-          </button>
-        ))}
+      {!compact && (
+        <div
+          className="insp-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('inspector.resize') || 'Resize panel'}
+          title={t('inspector.resize') || 'Drag to resize · double-click to reset'}
+          onPointerDown={startResize}
+          onDoubleClick={() => setInspectorWidth(DEFAULT_INSPECTOR_WIDTH)}
+        />
+      )}
+      <div className="inspector-head">
+        <div className="inspector-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setTab(tab.id)}
+              title={tab.label}
+            >
+              <span className="tab-btn-icon">{tab.icon}</span>
+              <span className="tab-btn-label">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="insp-collapse"
+          onClick={toggleInspector}
+          title={t('inspector.collapse') || 'Collapse panel'}
+          aria-label={t('inspector.collapse') || 'Collapse panel'}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="currentColor">
+            <path d="M9.354 8 5.146 3.792l.708-.708L10.77 8l-4.916 4.916-.708-.708L9.354 8z" />
+          </svg>
+        </button>
       </div>
 
       <div className="inspector-content">
@@ -141,7 +218,9 @@ export function Inspector() {
                       aria-hidden="true"
                     >
                       <g className="sym-group" style={{ color: 'var(--accent)' }}>
-                        {SYMBOLS[comp.type].body}
+                        {comp.type === 'bjtTransistor'
+                          ? bjtBody(comp.transistorType ?? 'npn')
+                          : SYMBOLS[comp.type].body}
                         {comp.type === 'switch' && switchLever(comp.value === 1)}
                       </g>
                     </svg>
@@ -239,16 +318,16 @@ export function Inspector() {
                       <div className="zener-power-bar-wrap" style={{ marginTop: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
                           <span>{t('zener.dissipation') || 'Power Dissipation'}</span>
-                          <span style={{ fontWeight: 600, color: compSolution.overload ? '#ef4444' : (compSolution.powerRatio ?? 0) > 0.8 ? '#f59e0b' : '#10b981' }}>
+                          <span style={{ fontWeight: 600, color: compSolution.overload ? 'var(--danger)' : (compSolution.powerRatio ?? 0) > 0.8 ? 'var(--warn)' : 'var(--ok)' }}>
                             {((compSolution.powerRatio ?? 0) * 100).toFixed(0)}% ({compSolution.power.toFixed(3)}W / {(comp.ratedPower ?? 1).toFixed(1)}W)
                           </span>
                         </div>
-                        <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden', marginTop: '3px' }}>
+                        <div style={{ height: '6px', background: 'var(--panel-3)', borderRadius: '3px', overflow: 'hidden', marginTop: '3px' }}>
                           <div
                             style={{
                               height: '100%',
                               width: `${Math.min(100, (compSolution.powerRatio ?? 0) * 100)}%`,
-                              background: compSolution.overload ? '#ef4444' : (compSolution.powerRatio ?? 0) > 0.8 ? '#f59e0b' : '#06b6d4',
+                              background: compSolution.overload ? 'var(--danger)' : (compSolution.powerRatio ?? 0) > 0.8 ? 'var(--warn)' : 'var(--accent-2)',
                               transition: 'width 0.15s ease',
                             }}
                           />
@@ -262,7 +341,11 @@ export function Inspector() {
                   <input
                     value={comp.label}
                     onChange={(e) =>
-                      store.updateComponents([comp.id], { label: e.target.value })
+                      store.updateComponents(
+                        [comp.id],
+                        { label: e.target.value },
+                        `edit:label:${comp.id}`,
+                      )
                     }
                     spellCheck={false}
                   />
@@ -274,23 +357,32 @@ export function Inspector() {
                       SYMBOLS[comp.type].unit ? ` (${SYMBOLS[comp.type].unit})` : ''
                     }`}
                   >
-                    <input
-                      type="number"
-                      step="any"
+                    <UnitInput
                       value={comp.value}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        if (Number.isFinite(v)) {
-                          if (isZenerDiode(comp.type)) {
-                            store.updateComponents([comp.id], { value: v, zenerVoltage: v, preset: 'custom' });
-                          } else {
-                            store.updateComponents([comp.id], { value: v });
-                          }
+                      ariaLabel={t('inspector.value')}
+                      hint={t('inspector.unitHint')}
+                      onChange={(v) => {
+                        if (isZenerDiode(comp.type)) {
+                          store.updateComponents([comp.id], { value: v, zenerVoltage: v, preset: 'custom' }, `edit:value:${comp.id}`);
+                        } else {
+                          store.updateComponents([comp.id], { value: v }, `edit:value:${comp.id}`);
                         }
                       }}
                     />
                   </Field>
                 ) : null}
+
+                {comp.type === 'polarized-capacitor' && (
+                  <CapacitorInspector
+                    comp={comp}
+                    sol={compSolution ?? null}
+                    update={(patch, tag) =>
+                      store.updateComponents([comp.id], patch, tag)
+                    }
+                    t={t}
+                    locale={locale}
+                  />
+                )}
 
                 {/* LED Color Picker Palette */}
                 {comp.type === 'led' && (
@@ -317,8 +409,8 @@ export function Inspector() {
                             borderRadius: '50%',
                             backgroundColor: item.hex,
                             border: (comp.color || 'red') === item.id
-                              ? '2.5px solid #ffffff'
-                              : '1px solid rgba(255,255,255,0.2)',
+                              ? '2.5px solid var(--text)'
+                              : '1px solid var(--border-strong)',
                             cursor: 'pointer',
                             outline: 'none',
                             boxShadow: (comp.color || 'red') === item.id
@@ -365,6 +457,7 @@ export function Inspector() {
                           });
                         }}
                       >
+                        <option value="ideal">Ideal Zener (ideal clamp)</option>
                         <option value="piecewise-linear">Piecewise-Linear (Fast & Accurate Knee)</option>
                         <option value="advanced">Advanced Shockley + Avalanche Breakdown</option>
                       </select>
@@ -479,13 +572,14 @@ export function Inspector() {
                         </label>
                       </div>
 
-                      {comp.dynamicThermal && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
-                          <Field label={`${t('zener.tempCoeff') || 'α'} (mV/°C)`}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                        <Field label={t('zener.tempCoeff') || 'α'}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
                             <input
                               type="number"
                               step="0.1"
                               value={comp.tempCoeff ?? 1.2}
+                              style={{ flex: 1, minWidth: 0 }}
                               onChange={(e) => {
                                 const v = parseFloat(e.target.value);
                                 if (Number.isFinite(v)) {
@@ -493,7 +587,73 @@ export function Inspector() {
                                 }
                               }}
                             />
+                            <select
+                              aria-label={t('zener.tempCoeffUnit') || 'Temperature coefficient unit'}
+                              value={comp.tempCoeffUnit ?? 'mV'}
+                              style={{ width: '78px' }}
+                              onChange={(e) => {
+                                store.updateComponents([comp.id], {
+                                  tempCoeffUnit: e.target.value as 'mV' | 'V' | 'percent',
+                                  preset: 'custom',
+                                });
+                              }}
+                            >
+                              <option value="mV">mV/°C</option>
+                              <option value="V">V/°C</option>
+                              <option value="percent">%/°C</option>
+                            </select>
+                          </div>
+                        </Field>
+                        <Field label={`${t('zener.ambientTemp') || 'Ambient'} (°C)`}>
+                          <input
+                            type="number"
+                            step="1"
+                            value={comp.ambientTemp ?? 25}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (Number.isFinite(v)) {
+                                store.updateComponents([comp.id], { ambientTemp: v, preset: 'custom' });
+                              }
+                            }}
+                          />
+                        </Field>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                        <Field label={`${t('zener.maxJunctionTemp') || 'Tj,max'} (°C)`}>
+                          <input
+                            type="number"
+                            step="5"
+                            min="25"
+                            value={comp.maxJunctionTemp ?? 150}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (Number.isFinite(v) && v > 0) {
+                                store.updateComponents([comp.id], { maxJunctionTemp: v, preset: 'custom' });
+                              }
+                            }}
+                          />
+                        </Field>
+                        {comp.dynamicThermal && (
+                          <Field label={`${t('zener.thermalCapacitance') || 'Cth'} (J/°C)`}>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              value={comp.thermalCapacitance ?? 0.08}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                if (Number.isFinite(v) && v > 0) {
+                                  store.updateComponents([comp.id], { thermalCapacitance: v, preset: 'custom' });
+                                }
+                              }}
+                            />
                           </Field>
+                        )}
+                      </div>
+
+                      {comp.dynamicThermal && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
                           <Field label={`${t('zener.thermalResistance') || 'Rth'} (°C/W)`}>
                             <input
                               type="number"
@@ -531,6 +691,18 @@ export function Inspector() {
                       />
                     </div>
                   </div>
+                )}
+
+                {/* Bipolar Junction Transistor: live operating point, model,
+                    ratings, thermal behaviour, probes and curve analyzer. */}
+                {comp.type === 'bjtTransistor' && (
+                  <BjtInspector
+                    comp={comp}
+                    sol={compSolution}
+                    update={(patch, tag) => store.updateComponents([comp.id], patch, tag)}
+                    t={t}
+                    locale={locale}
+                  />
                 )}
 
                 {/* AC Source & AC Motor Frequency */}
@@ -683,6 +855,23 @@ export function Inspector() {
                       <path d="M8 1.5v3M8 1.5l2.5 1.5" />
                     </svg>
                     <span>{t('inspector.rotateBtn')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="insp-action-btn"
+                    data-active={comp.mirrored === true}
+                    onClick={() => {
+                      store.updateComponents([comp.id], { mirrored: !comp.mirrored });
+                      useUiStore.getState().setStatus('status.mirrored');
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+                      <path d="M8 1v14" strokeDasharray="2 1.5" />
+                      <path d="M6 4 2 8l4 4V4z" fill="currentColor" stroke="none" />
+                      <path d="M10 4l4 4-4 4V4z" fill="none" />
+                    </svg>
+                    <span>{t('inspector.mirrorBtn')}</span>
                   </button>
 
                   <button

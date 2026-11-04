@@ -14,10 +14,11 @@ import { channelHasMeasurement, useProbeStore } from '../../store/probeStore';
 import {
   CHANNEL_COLORS,
   CHANNEL_IDS,
-  CURRENT_DIV_OPTIONS,
   TIME_DIV_OPTIONS,
-  VOLTAGE_DIV_OPTIONS,
+  channelScaleOptions,
+  channelSymbol,
   channelTargetState,
+  channelUnit,
   computeStats,
   findTriggerTime,
   stepTimeDiv,
@@ -88,7 +89,7 @@ function effectiveScale(
   let maxAbs = 0;
   for (const s of vs) maxAbs = Math.max(maxAbs, Math.abs(s.value));
   const raw = maxAbs / 4;
-  const options = ch.type === 'voltage' ? VOLTAGE_DIV_OPTIONS : CURRENT_DIV_OPTIONS;
+  const options = channelScaleOptions(ch);
   if (!(raw > 0)) return options[Math.min(5, options.length - 1)];
   for (const opt of options) {
     if (raw <= opt) return opt;
@@ -123,6 +124,7 @@ function computeWindow(
 
 export function Oscilloscope() {
   const locale = useUiStore((s) => s.locale);
+  const scopeFullscreen = useUiStore((s) => s.scopeFullscreen);
   const t = makeT(locale);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -607,6 +609,38 @@ export function Oscilloscope() {
     return comp ? comp.label : '—';
   };
 
+  const exportCsv = () => {
+    const chans = useProbeStore.getState().channels;
+    const active = chans.filter((ch) => channelSamples[ch.id]?.length > 0);
+    if (active.length === 0) return;
+
+    const len = Math.max(...active.map((ch) => channelSamples[ch.id].length));
+    const header = [
+      'time_s',
+      ...active.map((ch) => `${ch.id}_${ch.type === 'voltage' ? 'V' : 'A'}`),
+    ];
+    const lines = [header.join(',')];
+    for (let i = 0; i < len; i++) {
+      const t = channelSamples[active[0].id][i];
+      const cells = active.map((ch) => {
+        const s = channelSamples[ch.id][i];
+        return s ? s.value.toPrecision(9) : '';
+      });
+      lines.push([t ? t.t.toFixed(9) : '', ...cells].join(','));
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `oscilloscope-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    useUiStore.getState().setStatus('scope.exported');
+  };
+
   const autoFit = () => {
     // reset vertical scales to auto + fit time window to the buffer span
     for (const ch of enabledChannels) updateChannel(ch.id, { scale: 0, position: 0 });
@@ -661,6 +695,22 @@ export function Oscilloscope() {
             title={t('osc.clear') || 'Clear'}
           >
             ✕ <span className="scope-tool-label">{t('osc.clear') || 'Clear'}</span>
+          </button>
+          <button
+            className="scope-tool-btn"
+            onClick={exportCsv}
+            title={t('scope.export') || 'Export CSV'}
+          >
+            ⇓ <span className="scope-tool-label">{t('scope.export') || 'Export CSV'}</span>
+          </button>
+          <button
+            className={`scope-tool-btn ${scopeFullscreen ? 'is-on' : ''}`}
+            onClick={() => useUiStore.getState().setScopeFullscreen(!scopeFullscreen)}
+            title={t('scope.fullscreen') || 'Fullscreen'}
+            aria-pressed={scopeFullscreen}
+          >
+            {scopeFullscreen ? '⤡' : '⤢'}{' '}
+            <span className="scope-tool-label">{t('scope.fullscreen') || 'Fullscreen'}</span>
           </button>
         </div>
 
@@ -770,8 +820,8 @@ export function Oscilloscope() {
                 : !hasSignal
                   ? t('osc.noSignal') || 'No signal — press Run'
                   : isRunning
-                    ? `● LIVE · ${formatTime(timeDiv)}/div · ${sampleCount} ${t('osc.samples') || 'pts'}`
-                    : `❚❚ HELD · ${sampleCount} ${t('osc.samples') || 'pts'}`}
+                    ? `● ${t('osc.live') || 'LIVE'} · ${formatTime(timeDiv)}/div · ${sampleCount} ${t('osc.pts') || 'pts'}`
+                    : `❚❚ ${t('osc.held') || 'HELD'} · ${sampleCount} ${t('osc.pts') || 'pts'}`}
             </div>
 
             {/* scale pills */}
@@ -780,7 +830,7 @@ export function Oscilloscope() {
                 {enabledChannels.map((ch) => (
                   <span key={ch.id} className="scope-scale-pill" style={{ ['--ch-color' as string]: ch.color }}>
                     <i className="scope-scale-dot" />
-                    {ch.id} · {formatMag(scales.get(ch.id) ?? 1, ch.type === 'voltage' ? 'V' : 'A')}/div
+                    {ch.id} · {formatMag(scales.get(ch.id) ?? 1, channelUnit(ch))}/div
                   </span>
                 ))}
               </div>
@@ -802,7 +852,7 @@ export function Oscilloscope() {
                     <div key={ch.id} className="scope-hover-row">
                       <i style={{ background: ch.color }} />
                       <b>{ch.id}</b>
-                      <span>{formatMag(v, ch.type === 'voltage' ? 'V' : 'A')}</span>
+                      <span>{formatMag(v, channelUnit(ch))}</span>
                     </div>
                   );
                 })}
@@ -825,7 +875,7 @@ export function Oscilloscope() {
                     if (!o || o.v == null || r.v == null) return null;
                     return (
                       <span key={r.ch.id} className="scope-delta-chip" style={{ color: r.ch.color }}>
-                        Δ{r.ch.id} {formatMag(o.v - r.v, r.ch.type === 'voltage' ? 'V' : 'A')}
+                        Δ{r.ch.id} {formatMag(o.v - r.v, channelUnit(r.ch))}
                       </span>
                     );
                   })}
@@ -866,9 +916,8 @@ export function Oscilloscope() {
               <div className="scope-overlay scope-overlay-slim">
                 <div className="scope-overlay-icon">⚠</div>
                 <div className="scope-overlay-text">
-                  {staleChannels.map((c) => c.id).join(', ')}: probe target no
-                  longer exists on this circuit (nodes/branches changed).
-                  Remove the probe and place it again.
+                  {staleChannels.map((c) => c.id).join(', ')}
+                  {t('osc.staleProbe')}
                 </div>
                 <div className="scope-overlay-actions">
                   {staleChannels.map((c) => (
@@ -891,8 +940,8 @@ export function Oscilloscope() {
               {enabledChannels.map((ch) => {
                 const st = stats.get(ch.id);
                 if (!st) return null;
-                const unit = ch.type === 'voltage' ? 'V' : 'A';
-                const p = ch.type === 'voltage' ? 'V' : 'I';
+                const unit = channelUnit(ch);
+                const p = channelSymbol(ch);
                 const last = channelSamples[ch.id][channelSamples[ch.id].length - 1]?.value ?? 0;
                 return (
                   <div key={ch.id} className="scope-stat-card" style={{ ['--ch-color' as string]: ch.color }}>
@@ -942,8 +991,8 @@ export function Oscilloscope() {
                 const active = channelHasMeasurement(ch);
                 const stale = active && targetStates.get(ch.id) === 'stale';
                 const drawable = active && !stale;
-                const scaleOptions = ch.type === 'voltage' ? VOLTAGE_DIV_OPTIONS : CURRENT_DIV_OPTIONS;
-                const unit = ch.type === 'voltage' ? 'V' : 'A';
+                const scaleOptions = channelScaleOptions(ch);
+                const unit = channelUnit(ch);
                 const expanded = selectedChannelId === ch.id;
                 return (
                   <div
@@ -973,7 +1022,15 @@ export function Oscilloscope() {
                       </button>
                       <span className="scope-card-badge">{ch.id}</span>
                       <span className="scope-card-meta">
-                        <b>{ch.type === 'voltage' ? t('probe.voltage') || 'Voltage' : t('probe.current') || 'Current'}</b>
+                        <b>
+                          {ch.quantity === 'power'
+                            ? t('probe.power') || 'Power'
+                            : ch.quantity === 'temperature'
+                              ? t('probe.temperature') || 'Temperature'
+                              : ch.type === 'voltage'
+                                ? t('probe.voltage') || 'Voltage'
+                                : t('probe.current') || 'Current'}
+                        </b>
                         <small title={active ? describeChannel(ch) : undefined}>
                           {stale
                             ? '⚠ target removed — re-place probe'
@@ -1156,7 +1213,7 @@ export function Oscilloscope() {
                   const bad = buf.filter((s) => !Number.isFinite(s.t) || !Number.isFinite(s.value)).length;
                   return (
                     <span key={ch.id} className="scope-debug-ch">
-                      {ch.id} {ch.type} src={describeChannel(ch)} | samples={buf.length} visible={vs.length} bad={bad} | min={st ? formatMag(st.min, ch.type === 'voltage' ? 'V' : 'A') : '—'} max={st ? formatMag(st.max, ch.type === 'voltage' ? 'V' : 'A') : '—'} rms={st ? formatMag(st.rms, ch.type === 'voltage' ? 'V' : 'A') : '—'}
+                      {ch.id} {ch.type} src={describeChannel(ch)} | samples={buf.length} visible={vs.length} bad={bad} | min={st ? formatMag(st.min, channelUnit(ch)) : '—'} max={st ? formatMag(st.max, channelUnit(ch)) : '—'} rms={st ? formatMag(st.rms, channelUnit(ch)) : '—'}
                     </span>
                   );
                 })}

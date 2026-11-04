@@ -40,6 +40,7 @@
 
   --accent: #2563eb;
   --accent-2: #06b6d4;
+  --on-accent: #ffffff;
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --accent-glow: color-mix(in srgb, var(--accent) 28%, transparent);
   --accent-gradient: var(--accent);

@@ -14,6 +14,7 @@ import {
 } from './zenerModel';
 import { buildTopology, solveCircuit } from './solver';
 import { stepSimulation, DEFAULT_DT } from './simulationEngine';
+import { EXAMPLE_CIRCUITS } from './examples';
 import type { CircuitDoc } from '../models/circuit';
 
 describe('Zener Diode Mathematical Model & Presets', () => {
@@ -381,5 +382,135 @@ describe('Circuit Solver Integration with Zener Diode', () => {
     // Junction temp should have begun warming up
     expect(dzSnap!.junctionTemp).toBeDefined();
     expect(dzSnap!.junctionTemp!).toBeGreaterThan(25);
+  });
+});
+
+describe('Zener temperature coefficient, advanced model and bundled examples', () => {
+  it('supports mV/°C, V/°C and %/°C temperature coefficients', () => {
+    const mV = getZenerParameters({ value: 5.1, tempCoeff: 1.2, tempCoeffUnit: 'mV' });
+    expect(effectiveZenerVoltage(mV, 125)).toBeCloseTo(5.22, 3);
+
+    const volts = getZenerParameters({ value: 5.1, tempCoeff: 0.01, tempCoeffUnit: 'V' });
+    expect(effectiveZenerVoltage(volts, 125)).toBeCloseTo(6.1, 3);
+
+    const percent = getZenerParameters({ value: 5.1, tempCoeff: 1, tempCoeffUnit: 'percent' });
+    // +1 %/°C over +100 °C ⇒ Vz rises by one full nominal Vz
+    expect(effectiveZenerVoltage(percent, 125)).toBeCloseTo(10.2, 3);
+
+    // Unknown units fall back to mV/°C instead of corrupting the model
+    const invalid = getZenerParameters({ value: 5.1, tempCoeff: 1.2, tempCoeffUnit: 'µV' as never });
+    expect(invalid.tempCoeffUnit).toBe('mV');
+  });
+
+  it('keeps the advanced Shockley + avalanche model finite at extreme voltages', () => {
+    const params = getZenerParameters({
+      value: 5.1,
+      zenerResistance: 7,
+      zenerTestCurrent: 0.049,
+      zenerKneeCurrent: 0.001,
+    });
+    const advanced = { ...params, model: 'advanced' as const };
+
+    for (const vd of [-1000, -50, -5.2, -1, 0, 0.7, 50, 1000]) {
+      const i = calculateZenerCurrent(vd, advanced, 25);
+      expect(Number.isFinite(i), `Id finite at ${vd} V`).toBe(true);
+    }
+
+    // Deeper reverse bias must increase the magnitude of the breakdown current.
+    expect(calculateZenerCurrent(-5.5, advanced)).toBeLessThan(
+      calculateZenerCurrent(-5.1, advanced),
+    );
+    // Forward and reverse conduction keep the physical sign convention.
+    expect(calculateZenerCurrent(0.9, advanced)).toBeGreaterThan(0);
+    expect(calculateZenerCurrent(-5.1, advanced)).toBeLessThan(0);
+  });
+
+  it('warns near the configured maximum junction temperature without overloading', () => {
+    const params = getZenerParameters({
+      value: 5.1,
+      ratedPower: 1,
+      maxJunctionTemp: 150,
+    });
+    const hot = evaluateZenerStatus(-5.1, -0.02, 0.1, params, 140);
+    expect(hot.isThermalWarning).toBe(true);
+    expect(hot.isOverloaded).toBe(false);
+
+    const cool = evaluateZenerStatus(-5.1, -0.02, 0.1, params, 30);
+    expect(cool.isThermalWarning).toBe(false);
+  });
+
+  const runExample = (doc: CircuitDoc, steps: number) => {
+    const topology = buildTopology(doc);
+    const state = {
+      doc,
+      topology,
+      capacitorVoltage: new Map<string, number>(),
+      inductorCurrent: new Map<string, number>(),
+      zenerJunctionTemp: new Map<string, number>(),
+      simTime: 0,
+      status: 'running' as const,
+      snapshot: null,
+      errors: [],
+      warnings: [],
+    };
+    let snap = null;
+    for (let i = 0; i < steps; i++) {
+      snap = stepSimulation(doc, topology, state, DEFAULT_DT);
+    }
+    return snap!;
+  };
+
+  it('runs every bundled Zener example and regulates the basic regulator', () => {
+    const examples = EXAMPLE_CIRCUITS.filter((e) => e.id.startsWith('zener-'));
+    expect(examples.length).toBeGreaterThanOrEqual(8);
+
+    for (const example of examples) {
+      const snap = runExample(example.doc, 300);
+      expect(snap.valid, example.id).toBe(true);
+      const zeners = [...snap.componentData.values()].filter((s) => s.zenerState !== undefined);
+      expect(zeners.length, example.id).toBeGreaterThan(0);
+      for (const sol of zeners) {
+        expect(Number.isFinite(sol.voltage), `${example.id} voltage`).toBe(true);
+        expect(Number.isFinite(sol.current), `${example.id} current`).toBe(true);
+        expect(Number.isFinite(sol.power), `${example.id} power`).toBe(true);
+      }
+      if (example.id === 'zener-regulator-basic') {
+        const z = zeners[0];
+        expect(z.zenerState).toBe('breakdown');
+        expect(Math.abs(z.voltage)).toBeGreaterThan(4.85);
+        expect(Math.abs(z.voltage)).toBeLessThan(5.35);
+      }
+    }
+  });
+
+  it('clips an AC waveform in reverse breakdown without exceeding the clamp', () => {
+    const example = EXAMPLE_CIRCUITS.find((e) => e.id === 'zener-ac-clipper')!;
+    const topology = buildTopology(example.doc);
+    const state = {
+      doc: example.doc,
+      topology,
+      capacitorVoltage: new Map<string, number>(),
+      inductorCurrent: new Map<string, number>(),
+      zenerJunctionTemp: new Map<string, number>(),
+      simTime: 0,
+      status: 'running' as const,
+      snapshot: null,
+      errors: [],
+      warnings: [],
+    };
+
+    let maxAbsVd = 0;
+    let sawBreakdown = false;
+    for (let i = 0; i < 1000; i++) {
+      const snap = stepSimulation(example.doc, topology, state, DEFAULT_DT);
+      const sol = [...snap.componentData.values()].find((s) => s.zenerState !== undefined);
+      if (!sol) continue;
+      maxAbsVd = Math.max(maxAbsVd, Math.abs(sol.voltage));
+      if (sol.zenerState === 'breakdown') sawBreakdown = true;
+    }
+
+    expect(sawBreakdown).toBe(true);
+    // A 5.1 V Zener must clamp the 10 V peak well below the source amplitude.
+    expect(maxAbsVd).toBeLessThan(7.5);
   });
 });

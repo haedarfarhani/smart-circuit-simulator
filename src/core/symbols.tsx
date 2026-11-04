@@ -17,6 +17,7 @@ export const TERMINAL_TOP: TerminalDef = { x: 0, y: -LEAD_LEN, dx: 0, dy: -1 };
 
 export type LibraryCategory =
   | 'passive'
+  | 'semiconductors'
   | 'sources'
   | 'switches'
   | 'actuators';
@@ -111,6 +112,28 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
         {leadRight()}
         {line(-7, -14, -7, 14)}
         {line(7, -14, 7, 14)}
+      </>
+    ),
+  },
+  'polarized-capacitor': {
+    type: 'polarized-capacitor',
+    prefix: 'C',
+    category: 'passive',
+    defaultValue: 100e-6,
+    unit: 'F',
+    w: 88,
+    h: 44,
+    terminals: [TERMINAL_LEFT, TERMINAL_RIGHT],
+    body: (
+      <>
+        {leadLeft()}
+        {leadRight()}
+        {/* positive plate: straight; negative plate: curved */}
+        {line(-7, -15, -7, 15)}
+        <path className="sym-line" d="M 9 -15 Q 2 0 9 15" fill="none" />
+        <text className="sym-text" x={-22} y={-13} fontSize="11">
+          +
+        </text>
       </>
     ),
   },
@@ -250,7 +273,7 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
   diode: {
     type: 'diode',
     prefix: 'D',
-    category: 'passive',
+    category: 'semiconductors',
     defaultValue: 0.7,
     unit: 'V',
     w: 88,
@@ -270,7 +293,7 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
   zenerDiode: {
     type: 'zenerDiode',
     prefix: 'DZ',
-    category: 'passive',
+    category: 'semiconductors',
     defaultValue: 5.1,
     unit: 'V',
     w: 88,
@@ -297,7 +320,7 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
   'zener-diode': {
     type: 'zener-diode',
     prefix: 'DZ',
-    category: 'passive',
+    category: 'semiconductors',
     defaultValue: 5.1,
     unit: 'V',
     w: 88,
@@ -324,7 +347,7 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
   led: {
     type: 'led',
     prefix: 'LED',
-    category: 'passive',
+    category: 'semiconductors',
     defaultValue: 2.0,
     unit: 'V',
     w: 88,
@@ -418,7 +441,7 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
   bjtTransistor: {
     type: 'bjtTransistor',
     prefix: 'Q',
-    category: 'passive',
+    category: 'semiconductors',
     defaultValue: 200,
     unit: 'β',
     w: 100,
@@ -428,21 +451,36 @@ export const SYMBOLS: Record<ComponentType, SymbolDef> = {
       { x: 0, y: -LEAD_LEN, dx: 0, dy: -1 },
       { x: LEAD_LEN, y: 10, dx: 1, dy: 0 },
     ],
-    body: (
-      <>
-        <line className="sym-line" x1={-LEAD_LEN} y1={0} x2={-20} y2={0} />
-        <line className="sym-line" x1={0} y1={-LEAD_LEN} x2={0} y2={-20} />
-        <line className="sym-line" x1={20} y1={10} x2={LEAD_LEN} y2={10} />
-        <line className="sym-line" x1={-20} y1={-15} x2={-20} y2={15} />
-        <line className="sym-line" x1={-20} y1={-15} x2={0} y2={-15} />
-        <line className="sym-line" x1={-20} y1={15} x2={10} y2={15} />
-        <polygon points="15,5 25,10 15,15" className="sym-fill" fill="currentColor" />
-        <line className="sym-line" x1={-20} y1={0} x2={-25} y2={0} />
-        <circle className="sym-fill" cx={-20} cy={0} r={3.5} />
-      </>
-    ),
+    body: bjtBody('npn'),
   },
 };
+
+/**
+ * Standard three-terminal BJT symbol.
+ *
+ * Emitter arrow direction carries the polarity:
+ *   NPN — arrow points away from the base (outward on the emitter)
+ *   PNP — arrow points toward the base (inward on the emitter)
+ * Base is terminal 0 (left), collector 1 (top), emitter 2 (right-down).
+ */
+export function bjtBody(type: 'npn' | 'pnp' = 'npn'): ReactNode {
+  return (
+    <>
+      <line className="sym-line" x1={-LEAD_LEN} y1={0} x2={-20} y2={0} />
+      <line className="sym-line" x1={0} y1={-LEAD_LEN} x2={0} y2={-20} />
+      <line className="sym-line" x1={20} y1={10} x2={LEAD_LEN} y2={10} />
+      <line className="sym-line" x1={-20} y1={-15} x2={-20} y2={15} />
+      <line className="sym-line" x1={-20} y1={-15} x2={0} y2={-15} />
+      <line className="sym-line" x1={-20} y1={15} x2={10} y2={15} />
+      <polygon
+        points={type === 'npn' ? '15,5 25,10 15,15' : '25,5 15,10 25,15'}
+        className="sym-fill"
+        fill="currentColor"
+      />
+      <circle className="sym-fill" cx={-20} cy={0} r={3.5} />
+    </>
+  );
+}
 
 /**
  * Switch lever is state-dependent, so it is rendered separately from the
@@ -492,8 +530,9 @@ export function switchLever(closed: boolean): ReactNode {
 }
 
 export const CATEGORIES: { id: LibraryCategory; labelKey: string }[] = [
-  { id: 'passive', labelKey: 'lib.passive' },
   { id: 'sources', labelKey: 'lib.sources' },
+  { id: 'passive', labelKey: 'lib.passive' },
+  { id: 'semiconductors', labelKey: 'lib.semiconductors' },
   { id: 'switches', labelKey: 'lib.switches' },
   { id: 'actuators', labelKey: 'lib.actuators' },
 ];

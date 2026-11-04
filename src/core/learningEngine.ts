@@ -368,7 +368,62 @@ const learningTopics: LearningTopic[] = [
 
       return steps;
     }
-  }
+  },
+  {
+    title: 'Polarized Capacitor',
+    formula: 'Q = C·Vc   E = ½·C·Vc²   Vterm = Vc + Ic·ESR',
+    explanation:
+      'A polarized capacitor stores charge in the electric field between its plates. Its positive terminal must stay at the higher potential: a negative Vc is reverse bias and is unsafe for electrolytic and tantalum parts. ESR converts ripple current into heat, so the body temperature follows the simulated losses.',
+    applicable: (doc) =>
+      doc.components.some((c) => c.type === 'polarized-capacitor'),
+    generate: (doc, _topology, solver) => {
+      const steps: LearningStep[] = [];
+      const caps = doc.components.filter(
+        (c) => c.type === 'polarized-capacitor',
+      );
+      if (!solver) return steps;
+
+      for (const cap of caps) {
+        const sol = solver.componentData.get(cap.id)?.capacitor;
+        if (!sol) continue;
+
+        steps.push({
+          title: `Stored charge in ${cap.label}`,
+          formula: 'Q = C·Vc',
+          explanation:
+            'The charge on the plates is the capacitance multiplied by the ideal capacitor voltage (the terminal voltage minus the ESR drop). Conventional current into the + terminal increases this charge.',
+          values: `C = ${(cap.value * 1e6).toFixed(1)} µF\nVc = ${sol.idealVoltage.toFixed(3)} V`,
+          result: `Q = ${(sol.charge * 1e6).toFixed(2)} µC`,
+          highlightedComponents: [cap.id],
+        });
+
+        steps.push({
+          title: `Energy stored in ${cap.label}`,
+          formula: 'E = ½·C·Vc²',
+          explanation:
+            'The energy is stored in the dielectric field and returned to the circuit during discharge. This value is computed from the solved capacitor voltage, not from a timer.',
+          values: `C = ${(cap.value * 1e6).toFixed(1)} µF\nVc = ${sol.idealVoltage.toFixed(3)} V`,
+          result: `E = ${sol.energy.toFixed(6)} J (${(sol.energy * 1e3).toFixed(3)} mJ)`,
+          highlightedComponents: [cap.id],
+        });
+
+        steps.push({
+          title: `Polarity and losses in ${cap.label}`,
+          formula: 'P_ESR = Ic²·ESR',
+          explanation:
+            'Vc is defined as V(+) − V(−). A negative value means reverse bias; the simulator reports it rather than hiding it. ESR and leakage losses raise the body temperature above ambient.',
+          values: `Vterm = ${sol.terminalVoltage.toFixed(3)} V\nIc = ${sol.current.toFixed(4)} A\nESR = ${(cap.esr ?? 0).toFixed(3)} Ω\nT = ${sol.temperature.toFixed(1)} °C`,
+          result:
+            sol.polarity === 'reverse'
+              ? `⚠ REVERSE BIAS: Vc = ${sol.idealVoltage.toFixed(3)} V (${sol.reverseVoltage.toFixed(3)} V reversed)`
+              : `Normal polarity · ESR loss ${sol.esrLoss.toFixed(4)} W · ${sol.overvoltage ? 'OVERVOLTAGE' : 'within rated voltage'}`,
+          highlightedComponents: [cap.id],
+        });
+      }
+
+      return steps;
+    },
+  },
 ];
 
 export function generateLearningContent(

@@ -45,6 +45,16 @@ export interface OscilloscopeChannel {
   /** current channels: the measured branch */
   branchId: string | null;
   branchKind: 'component' | 'wire' | null;
+  /**
+   * Multi-terminal devices (BJT): which terminal the current probe reads.
+   * 0 = first terminal, 1 = second, 2 = third. null reads the branch current.
+   */
+  branchTerminal?: number | null;
+  /**
+   * Derived device measurements that are not a node voltage or branch current.
+   * Used for transistor junction temperature and dissipation.
+   */
+  quantity?: 'power' | 'temperature' | null;
   /** user-facing name, e.g. "R1 → GND" */
   label: string;
   color: string;
@@ -125,6 +135,8 @@ export function makeChannel(id: ChannelId): OscilloscopeChannel {
     negativePoint: null,
     branchId: null,
     branchKind: null,
+    branchTerminal: null,
+    quantity: null,
     label: id,
     color: CHANNEL_COLORS[id],
     scale: 0,
@@ -143,7 +155,15 @@ export function channelValue(
   channel: OscilloscopeChannel,
   snap: {
     nodeVoltages: Map<string, number>;
-    componentData: Map<string, { current: number }>;
+    componentData: Map<
+      string,
+      {
+        current: number;
+        power?: number;
+        junctionTemp?: number;
+        terminalCurrents?: number[];
+      }
+    >;
     wireCurrents: Map<string, number>;
   },
 ): number {
@@ -163,7 +183,33 @@ export function channelValue(
   if (channel.branchKind === 'wire') {
     return snap.wireCurrents.get(channel.branchId) ?? 0;
   }
-  return snap.componentData.get(channel.branchId)?.current ?? 0;
+  const data = snap.componentData.get(channel.branchId);
+  if (channel.quantity === 'power') return data?.power ?? 0;
+  if (channel.quantity === 'temperature') return data?.junctionTemp ?? 0;
+  if (channel.branchTerminal != null && data?.terminalCurrents) {
+    return data.terminalCurrents[channel.branchTerminal] ?? 0;
+  }
+  return data?.current ?? 0;
+}
+
+/** Physical unit of a channel (derived quantities included). */
+export function channelUnit(channel: OscilloscopeChannel): string {
+  if (channel.quantity === 'power') return 'W';
+  if (channel.quantity === 'temperature') return '°C';
+  return channel.type === 'voltage' ? 'V' : 'A';
+}
+
+/** Short symbol used in the measurement cards (Vpp, Irms, …). */
+export function channelSymbol(channel: OscilloscopeChannel): string {
+  if (channel.quantity === 'power') return 'P';
+  if (channel.quantity === 'temperature') return 'T';
+  return channel.type === 'voltage' ? 'V' : 'I';
+}
+
+/** Axis/scale options appropriate for the channel's unit. */
+export function channelScaleOptions(channel: OscilloscopeChannel): number[] {
+  if (channel.type === 'voltage' || channel.quantity) return VOLTAGE_DIV_OPTIONS;
+  return CURRENT_DIV_OPTIONS;
 }
 
 export interface MeasurementStats {

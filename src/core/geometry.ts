@@ -26,8 +26,11 @@ export function terminalWorld(
   index: number,
 ): Point & { dx: number; dy: number } {
   const def: TerminalDef = SYMBOLS[comp.type].terminals[index];
-  const local = rotatePoint({ x: def.x, y: def.y }, comp.rotation);
-  const dir = rotatePoint({ x: def.dx, y: def.dy }, comp.rotation);
+  // Horizontal mirror is applied in local space (before rotation), exactly
+  // like the `scale(-1,1)` render transform — keeps wires locked to symbols.
+  const mx = comp.mirrored ? -1 : 1;
+  const local = rotatePoint({ x: def.x * mx, y: def.y }, comp.rotation);
+  const dir = rotatePoint({ x: def.dx * mx, y: def.dy }, comp.rotation);
   return { x: comp.x + local.x, y: comp.y + local.y, dx: dir.x, dy: dir.y };
 }
 

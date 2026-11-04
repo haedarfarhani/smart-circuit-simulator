@@ -37,6 +37,7 @@ export type LedColor = 'red' | 'green' | 'blue' | 'yellow' | 'purple' | 'white';
 export type ComponentType =
   | 'resistor'
   | 'capacitor'
+  | 'polarized-capacitor'
   | 'lamp'
   | 'switch'
   | 'battery'
@@ -100,8 +101,12 @@ export interface CircuitComponent {
   reverseLeakage?: number;
   /** Maximum rated power dissipation (W) */
   ratedPower?: number;
-  /** Temperature coefficient alpha in mV/°C */
+  /** Temperature coefficient alpha, expressed in tempCoeffUnit */
   tempCoeff?: number;
+  /** Unit for tempCoeff: mV/°C (default), V/°C, or %/°C */
+  tempCoeffUnit?: 'mV' | 'V' | 'percent';
+  /** Maximum junction temperature (°C) used for thermal warnings */
+  maxJunctionTemp?: number;
   /** Ambient temperature (°C) */
   ambientTemp?: number;
   /** Thermal resistance Rth (°C/W) */
@@ -144,6 +149,68 @@ export interface CircuitComponent {
   cth?: number;
   /** Max power dissipation (W) */
   pMax?: number;
+  /** Ideal maximum forward gain BF (Ebers-Moll presets) */
+  bf?: number;
+  /** Ideal maximum reverse gain BR (Ebers-Moll presets) */
+  br?: number;
+  /** Maximum collector-emitter voltage VCEO (V) */
+  vceo?: number;
+  /** Maximum collector-base voltage VCBO (V) */
+  vcbo?: number;
+  /** Maximum emitter-base voltage VEBO (V) */
+  vebo?: number;
+  /** Maximum continuous collector current (A) */
+  icMax?: number;
+  /** Temperature at which the model parameters were measured (°C) */
+  nominalTemp?: number;
+  /** Beta temperature exponent */
+  betaTempCoeff?: number;
+  /** Manufacturer name (documentation only) */
+  manufacturer?: string;
+  /** Manufacturer part number (documentation only) */
+  partNumber?: string;
+  /** Free-form component description */
+  description?: string;
+  /** Mirror the symbol horizontally around its center (terminals follow) */
+  mirrored?: boolean;
+
+  // ---- Polarized capacitor ----
+  /** Capacitor chemistry: aluminum electrolytic | tantalum | polymer | custom */
+  technology?: import('../core/capacitorModel').CapacitorTechnology;
+  /** Ideal simulation or realistic safety model */
+  capacitorModel?: import('../core/capacitorModel').CapacitorModelMode;
+  /** Transient integration used for this capacitor */
+  capacitorIntegration?: import('../core/capacitorModel').CapacitorIntegration;
+  /** Rated voltage (V) */
+  ratedVoltage?: number;
+  /** Initial capacitor voltage (V), used when initialConditionEnabled */
+  initialVoltage?: number;
+  /** Initial stored charge (C) */
+  initialCharge?: number;
+  /** Apply the initial voltage/charge at simulation start */
+  initialConditionEnabled?: boolean;
+  /** Capacitance tolerance, percent */
+  tolerance?: number;
+  /** Equivalent series resistance (Ω) */
+  esr?: number;
+  /** Equivalent series inductance (H) */
+  esl?: number;
+  /** Leakage current at rated voltage (A) */
+  leakageCurrent?: number;
+  /** Parallel insulation resistance (Ω); overrides leakageCurrent when set */
+  leakageResistance?: number;
+  /** Reverse breakdown magnitude (V) for the realistic model */
+  reverseBreakdownVoltage?: number;
+  /** What the realistic model does at reverse breakdown */
+  failureBehavior?: import('../core/capacitorModel').CapacitorFailureBehavior;
+  /** Maximum RMS ripple current rating (A) */
+  maxRippleCurrent?: number;
+  /** Frequency the ripple rating is specified at (Hz) */
+  rippleFrequency?: number;
+  /** Maximum body temperature (°C) */
+  maxTemp?: number;
+  /** Dielectric-absorption fraction (0..1, advanced model) */
+  dielectricAbsorption?: number;
 }
 
 /** A wire endpoint. When `componentId` is null the end is free (disconnected). */

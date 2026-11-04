@@ -11,9 +11,18 @@ export function CanvasContextMenu() {
 
   useEffect(() => {
     const onCtx = (e: MouseEvent) => {
-      const wrap = (e.target as HTMLElement | null)?.closest?.('.canvas-wrap');
+      const target = e.target as Element | null;
+      const wrap = target?.closest?.('.canvas-wrap');
       if (!wrap) return;
       e.preventDefault();
+      // Right-click selects the component under the cursor first (standard
+      // editor behavior) so the menu actions apply to it.
+      const compEl = target?.closest?.('[data-comp-id]');
+      const compId = compEl?.getAttribute('data-comp-id');
+      const ui = useUiStore.getState();
+      if (compId && !ui.selection.includes(compId)) {
+        ui.select([compId]);
+      }
       setPos({ x: e.clientX, y: e.clientY });
     };
     const onDown = (e: MouseEvent) => {
@@ -50,6 +59,19 @@ export function CanvasContextMenu() {
         ui.setStatus('status.rotated');
       })}>
         {t('inspector.rotateBtn')}
+      </button>
+      <button role="menuitem" disabled={!hasComp} onClick={() => run(() => {
+        const ids = selection.filter((id) =>
+          store.doc.components.some((c) => c.id === id),
+        );
+        store.updateComponents(ids, {
+          mirrored: !ids.every((id) =>
+            store.doc.components.find((c) => c.id === id)?.mirrored,
+          ),
+        });
+        ui.setStatus('status.mirrored');
+      })}>
+        {t('inspector.mirrorBtn')}
       </button>
       <button role="menuitem" disabled={!hasComp} onClick={() => run(() => {
         const ids = store.duplicateComponents(selection);

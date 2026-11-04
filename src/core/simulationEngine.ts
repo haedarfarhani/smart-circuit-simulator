@@ -37,6 +37,30 @@ import {
   stepZenerThermal,
   type ZenerParameters,
 } from './zenerModel';
+import {
+  isCapacitorType,
+  getCapacitorParameters,
+  capacitorCompanion,
+  capacitorBranchCurrent,
+  advanceCapacitorVoltage,
+  capacitorLeakageCurrent,
+  capacitorReverseBreakdown,
+  capacitorLoss,
+  stepCapacitorThermal,
+  buildCapacitorReadout,
+  createCapacitorStats,
+  accumulateCapacitorStats,
+  capacitorStatsReadout,
+  type CapacitorRuntimeStats,
+} from './capacitorModel';
+import {
+  bjtLinearization,
+  buildBjtSolution,
+  getBjtParameters,
+  limitJunctionStep,
+  stepBjtThermal,
+  type BjtParameters,
+} from './bjtModel';
 
 // ---------------------------------------------------------------------------
 // Simulation clock + configuration
@@ -74,6 +98,14 @@ export interface SimulationState {
   capacitorVoltage: Map<string, number>; // Vc at terminal A relative to B
   inductorCurrent: Map<string, number>;  // I through the inductor
   zenerJunctionTemp?: Map<string, number>; // Tj for each Zener diode
+  /** last capacitor branch current, for trapezoidal / ESL history */
+  capacitorCurrent?: Map<string, number>;
+  /** capacitor body temperature (°C) */
+  capacitorTemperature?: Map<string, number>;
+  /** rolling RMS / ripple measurement window per capacitor */
+  capacitorStats?: Map<string, CapacitorRuntimeStats>;
+  /** junction temperature per BJT (°C), advanced by the thermal model */
+  bjtJunctionTemp?: Map<string, number>;
   // Running totals for the simulation clock
   simTime: number;
   status: 'stopped' | 'running' | 'paused';
@@ -100,6 +132,14 @@ export interface ZenerDiodeState {
   params: ZenerParameters;
   region: 'forward' | 'blocking' | 'breakdown';
   vd: number;
+  tj: number;
+}
+
+/** Newton operating state for a BJT inside one transient timestep. */
+export interface BjtTransientState {
+  params: BjtParameters;
+  vbe: number;
+  vbc: number;
   tj: number;
 }
 
@@ -195,6 +235,7 @@ export function buildInstantaneousNetwork(
   dt: number,
   diodeStates: Map<string, DiodeState>,
   zenerStates?: Map<string, ZenerDiodeState>,
+  bjtStates?: Map<string, BjtTransientState>,
 ): InstantaneousNetwork {
   const { nodes, components: topoComps, groundNode } = topology;
 
@@ -242,9 +283,11 @@ export function buildInstantaneousNetwork(
   const I = new Array(matrixSize).fill(0);
 
   const comps = topoComps;
+  const docById = new Map(doc.components.map((c) => [c.id, c] as const));
   const diodes = comps.filter((c) => c.type === 'diode' || c.type === 'led');
   const zeners = comps.filter((c) => isZenerDiode(c.type));
-  const caps = comps.filter((c) => c.type === 'capacitor');
+  const bjts = comps.filter((c) => c.type === 'bjtTransistor');
+  const caps = comps.filter((c) => isCapacitorType(c.type));
   const inds = comps.filter(
     (c) => c.type === 'solenoid' || c.type === 'dcMotor',
   );
@@ -257,8 +300,9 @@ export function buildInstantaneousNetwork(
       !isOpenAtDC(c.type) &&
       c.type !== 'diode' &&
       c.type !== 'led' &&
+      c.type !== 'bjtTransistor' &&
       !isZenerDiode(c.type) &&
-      c.type !== 'capacitor' &&
+      !isCapacitorType(c.type) &&
       c.type !== 'solenoid' &&
       c.type !== 'dcMotor',
   );
@@ -287,27 +331,62 @@ export function buildInstantaneousNetwork(
     }
   }
 
-  // ---- Capacitors: Backward Euler companion ----
-  // Geq = C/dt between the terminals; the previous voltage appears as a
-  // current source injecting C·Vprev/dt into node A and out of node B.
+  // ---- Capacitors ----
+  // A plain capacitor keeps the original Backward-Euler companion. A
+  // polarized capacitor additionally carries ESR, ESL, leakage and (in
+  // realistic mode) an approximate reverse-breakdown branch, stamped into the
+  // very same solve so they change the transient, not only the readout.
   for (const comp of caps) {
-    const cFarad = Math.max(comp.value, 0);
-    if (cFarad <= 0 || dt <= 0) continue;
-    const gEq = cFarad / dt;
-    const vPrev = safe(state.capacitorVoltage.get(comp.id) ?? 0);
     const iA = nodeIndex.get(comp.nodeA);
     const iB = nodeIndex.get(comp.nodeB);
     if (iA === undefined && iB === undefined) continue;
-    if (iA !== undefined) {
-      G[iA][iA] += gEq;
-      if (iB !== undefined) G[iA][iB] -= gEq;
-      I[iA] += gEq * vPrev;
+
+    if (comp.type === 'capacitor') {
+      const cFarad = Math.max(comp.value, 0);
+      if (cFarad <= 0 || dt <= 0) continue;
+      const gEq = cFarad / dt;
+      const vPrev = safe(state.capacitorVoltage.get(comp.id) ?? 0);
+      if (iA !== undefined) {
+        G[iA][iA] += gEq;
+        if (iB !== undefined) G[iA][iB] -= gEq;
+        I[iA] += gEq * vPrev;
+      }
+      if (iB !== undefined) {
+        G[iB][iB] += gEq;
+        if (iA !== undefined) G[iB][iA] -= gEq;
+        I[iB] -= gEq * vPrev;
+      }
+      continue;
     }
-    if (iB !== undefined) {
-      G[iB][iB] += gEq;
-      if (iA !== undefined) G[iB][iA] -= gEq;
-      I[iB] -= gEq * vPrev;
+
+    const docComp = docById.get(comp.id);
+    const params = getCapacitorParameters(docComp ?? comp);
+    const vPrev = safe(state.capacitorVoltage.get(comp.id) ?? 0);
+    const iPrev = safe(state.capacitorCurrent?.get(comp.id) ?? 0);
+    const companion = capacitorCompanion(params, dt, vPrev, iPrev);
+
+    const stamp = (g: number, historyCurrent: number) => {
+      if (!(g > 0) || !Number.isFinite(g) || !Number.isFinite(historyCurrent)) return;
+      if (iA !== undefined) {
+        G[iA][iA] += g;
+        if (iB !== undefined) G[iA][iB] -= g;
+        I[iA] -= historyCurrent;
+      }
+      if (iB !== undefined) {
+        G[iB][iB] += g;
+        if (iA !== undefined) G[iB][iA] -= g;
+        I[iB] += historyCurrent;
+      }
+    };
+
+    stamp(companion.conductance, companion.historyCurrent);
+
+    if (params.model === 'realistic' && params.leakageResistance > 0) {
+      stamp(1 / params.leakageResistance, 0);
     }
+
+    const breakdown = capacitorReverseBreakdown(params, vPrev);
+    if (breakdown) stamp(breakdown.conductance, breakdown.historyCurrent);
   }
 
   // ---- Inductors / DC motors: Backward Euler companion ----
@@ -396,6 +475,32 @@ export function buildInstantaneousNetwork(
       G[iB][iB] += g;
       if (iA !== undefined) G[iB][iA] -= g;
       I[iB] -= iEq;
+    }
+  }
+
+  // ---- BJTs: Newton-linearised 3-terminal device ----
+  for (const q of bjts) {
+    const st = bjtStates?.get(q.id);
+    if (!st) continue;
+    const iB = nodeIndex.get(q.nodeA);
+    const iC = nodeIndex.get(q.nodeB);
+    const iE = nodeIndex.get(q.nodeC ?? '');
+    if (iB === undefined && iC === undefined && iE === undefined) continue;
+    // vE=0, vB=vbe, vC=vbe-vbc: reproduces the stored junction voltages.
+    const v0 = [st.vbe, st.vbe - st.vbc, 0];
+    const lin = bjtLinearization(st.params, v0[0], v0[1], v0[2], st.tj);
+    const nodes = [iB, iC, iE];
+    const currents = [lin.ib, lin.ic, lin.ie];
+    for (let r = 0; r < 3; r++) {
+      const nr = nodes[r];
+      if (nr === undefined) continue;
+      for (let c = 0; c < 3; c++) {
+        const nc = nodes[c];
+        if (nc !== undefined) G[nr][nc] += lin.jacobian[r][c];
+      }
+      let rhs = -currents[r];
+      for (let c = 0; c < 3; c++) rhs += lin.jacobian[r][c] * v0[c];
+      I[nr] += rhs;
     }
   }
 
@@ -526,8 +631,25 @@ export function stepSimulation(
     });
   }
 
-  const MAX_DIODE_ITERS = 16;
-  let net = buildInstantaneousNetwork(doc, topology, t, state, safeDt, diodeStates, zenerStates);
+  const bjts = topology.components.filter((c) => c.type === 'bjtTransistor');
+  const bjtStates = new Map<string, BjtTransientState>();
+  for (const q of bjts) {
+    const docComp = doc.components.find((c) => c.id === q.id);
+    const params = getBjtParameters(docComp ?? q);
+    const sign = params.transistorType === 'npn' ? 1 : -1;
+    const prev = state.snapshot?.componentData.get(q.id)?.bjt;
+    bjtStates.set(q.id, {
+      params,
+      vbe: prev?.vbe ?? 0.4 * sign,
+      vbc: prev?.vbc ?? -1 * sign,
+      tj: state.bjtJunctionTemp?.get(q.id) ?? params.tAmbient,
+    });
+  }
+
+  const MAX_DIODE_ITERS = bjts.length > 0 ? 60 : 16;
+  let net = buildInstantaneousNetwork(
+    doc, topology, t, state, safeDt, diodeStates, zenerStates, bjtStates,
+  );
   if (net.matrixSize === 0) return emptySnap();
 
   let sol: number[] | null = null;
@@ -538,7 +660,7 @@ export function stepSimulation(
       break;
     }
     sol = s;
-    if (diodes.length === 0 && zeners.length === 0) break;
+    if (diodes.length === 0 && zeners.length === 0 && bjts.length === 0) break;
 
     let changed = false;
     for (const d of diodes) {
@@ -570,8 +692,28 @@ export function stepSimulation(
       }
     }
 
+    for (const q of bjts) {
+      const st = bjtStates.get(q.id);
+      if (!st) continue;
+      const iB = net.nodeIndex.get(q.nodeA);
+      const iC = net.nodeIndex.get(q.nodeB);
+      const iE = net.nodeIndex.get(q.nodeC ?? '');
+      const vB = iB !== undefined ? safe(sol[iB]) : 0;
+      const vC = iC !== undefined ? safe(sol[iC]) : 0;
+      const vE = iE !== undefined ? safe(sol[iE]) : 0;
+      const nvbe = limitJunctionStep(st.vbe, vB - vE, 0.15);
+      const nvbc = limitJunctionStep(st.vbc, vB - vC, 0.15);
+      if (Math.abs(nvbe - st.vbe) > 1e-8 || Math.abs(nvbc - st.vbc) > 1e-8) {
+        changed = true;
+      }
+      st.vbe = nvbe;
+      st.vbc = nvbc;
+    }
+
     if (!changed) break;
-    net = buildInstantaneousNetwork(doc, topology, t, state, safeDt, diodeStates, zenerStates);
+    net = buildInstantaneousNetwork(
+      doc, topology, t, state, safeDt, diodeStates, zenerStates, bjtStates,
+    );
   }
 
   if (!sol) {
@@ -608,6 +750,16 @@ export function stepSimulation(
   // ---- per-component instantaneous solution ----
   const componentData = new Map<string, ComponentSolution>();
   const newZenerTemps = new Map<string, number>(state.zenerJunctionTemp);
+  const newCapTemps = new Map<string, number>(state.capacitorTemperature);
+  const newCapStats = new Map<string, CapacitorRuntimeStats>(state.capacitorStats);
+  const newBjtTemps = new Map<string, number>(state.bjtJunctionTemp);
+  const bjtReadouts = new Map<
+    string,
+    { params: BjtParameters; lin: ReturnType<typeof bjtLinearization>; nextTj: number }
+  >();
+  /** current through the ideal C element itself (excludes leakage/breakdown) */
+  const capacitorElementCurrents = new Map<string, number>();
+  const docById = new Map(doc.components.map((c) => [c.id, c] as const));
   const supplyVoltage =
     doc.components.find((c) => c.type === 'battery' || c.type === 'acVoltageSource')
       ?.value ?? 0;
@@ -615,23 +767,54 @@ export function stepSimulation(
   for (const comp of net.components) {
     const iA = net.nodeIndex.get(comp.nodeA);
     const iB = net.nodeIndex.get(comp.nodeB);
+    const iE = net.nodeIndex.get(comp.nodeC ?? '');
     const vA = iA !== undefined ? safe(sol![iA]) : 0;
     const vB = iB !== undefined ? safe(sol![iB]) : 0;
-    const voltage = vA - vB;
+    const vE = iE !== undefined ? safe(sol![iE]) : 0;
+    // BJTs expose VCE as their branch voltage; every other 2-terminal part
+    // uses the voltage between its two terminals.
+    const voltage = comp.type === 'bjtTransistor' ? vB - vE : vA - vB;
 
     let current = 0;
     if (comp.voltageSource) {
       current = branchCurrents.get(comp.id) ?? 0;
     } else if (comp.currentSource) {
       current = safe(comp.value);
-    } else if (comp.type === 'capacitor') {
-      // I = C·dV/dt with the Backward-Euler endpoint voltages
-      const cFarad = Math.max(comp.value, 0);
-      const vPrev = safe(state.capacitorVoltage.get(comp.id) ?? 0);
-      current =
-        cFarad > 0 && safeDt > 0
-          ? (cFarad * (voltage - vPrev)) / safeDt
+    } else if (isCapacitorType(comp.type)) {
+      if (comp.type === 'capacitor') {
+        // I = C·dV/dt with the Backward-Euler endpoint voltages
+        const cFarad = Math.max(comp.value, 0);
+        const vPrev = safe(state.capacitorVoltage.get(comp.id) ?? 0);
+        current =
+          cFarad > 0 && safeDt > 0
+            ? (cFarad * (voltage - vPrev)) / safeDt
+            : 0;
+        // The shared state-advance loop reads this map for both capacitor
+        // types; without the entry a legacy capacitor would freeze at t = 0.
+        capacitorElementCurrents.set(comp.id, current);
+      } else {
+        // Polarized: element current from the same companion the matrix uses.
+        // The terminal current also carries leakage and breakdown current, so
+        // KCL / wire animation / probes see the whole branch.
+        const docComp = docById.get(comp.id);
+        const params = getCapacitorParameters(docComp ?? comp);
+        const previousVoltage = safe(state.capacitorVoltage.get(comp.id) ?? 0);
+        const previousCurrent = safe(state.capacitorCurrent?.get(comp.id) ?? 0);
+        const companion = capacitorCompanion(
+          params,
+          safeDt,
+          previousVoltage,
+          previousCurrent,
+        );
+        const elementCurrent = capacitorBranchCurrent(companion, voltage);
+        capacitorElementCurrents.set(comp.id, elementCurrent);
+        const leakage = capacitorLeakageCurrent(params, voltage);
+        const breakdown = capacitorReverseBreakdown(params, previousVoltage);
+        const breakdownCurrent = breakdown
+          ? breakdown.conductance * voltage + breakdown.historyCurrent
           : 0;
+        current = elementCurrent + leakage + breakdownCurrent;
+      }
     } else if (comp.type === 'solenoid' || comp.type === 'dcMotor') {
       // Inductor companion current: I(n+1) = [V(n+1) + (L/dt)·I(n)] / (R + L/dt)
       const l = Math.max(comp.inductance ?? DEFAULT_SOLENOID_INDUCTANCE, 0);
@@ -654,6 +837,15 @@ export function stepSimulation(
       const params = st ? st.params : getZenerParameters(comp);
       const prevTj = state.zenerJunctionTemp?.get(comp.id) ?? params.ambientTemp;
       current = calculateZenerCurrent(voltage, params, prevTj);
+    } else if (comp.type === 'bjtTransistor') {
+      const docComp = docById.get(comp.id);
+      const params = getBjtParameters(docComp ?? comp);
+      const prevTj = state.bjtJunctionTemp?.get(comp.id) ?? params.tAmbient;
+      const lin = bjtLinearization(params, vA, vB, vE, prevTj);
+      const nextTj = stepBjtThermal(prevTj, lin.power, params, safeDt);
+      newBjtTemps.set(comp.id, nextTj);
+      bjtReadouts.set(comp.id, { params, lin, nextTj });
+      current = lin.ic;
     } else if (comp.type === 'lamp') {
       const r = lampResistance(comp.value, supplyVoltage);
       current = Number.isFinite(r) && r > 0 ? voltage / r : 0;
@@ -699,29 +891,110 @@ export function stepSimulation(
       solution.effectiveVz = status.vzEffective;
     }
 
+    // Polarized-capacitor state: Q, E, ESR drop/loss, leakage, polarity,
+    // overvoltage and temperature all come from this solved instant.
+    if (comp.type === 'polarized-capacitor') {
+      const docComp = docById.get(comp.id);
+      const params = getCapacitorParameters(docComp ?? comp);
+      const prevTemp =
+        state.capacitorTemperature?.get(comp.id) ?? params.ambientTemp;
+      const elementCurrent = safe(
+        capacitorElementCurrents.get(comp.id) ?? current,
+      );
+      const loss = capacitorLoss(params, elementCurrent, voltage);
+      const nextTemp = stepCapacitorThermal(prevTemp, loss.total, params, safeDt);
+      newCapTemps.set(comp.id, nextTemp);
+
+      const prevStats =
+        state.capacitorStats?.get(comp.id) ??
+        createCapacitorStats(state.capacitorVoltage.get(comp.id) ?? 0, t);
+      const stats = accumulateCapacitorStats(prevStats, {
+        t,
+        voltage,
+        current: elementCurrent,
+        power: Math.abs(elementCurrent * voltage),
+        dt: safeDt,
+      });
+      newCapStats.set(comp.id, stats);
+      const measured = capacitorStatsReadout(stats);
+
+      solution.capacitor = buildCapacitorReadout(params, {
+        terminalVoltage: voltage,
+        current: elementCurrent,
+        temperature: nextTemp,
+        rmsCurrent: measured.rmsCurrent,
+        peakCurrent: measured.peakCurrent,
+        rippleVoltage: measured.rippleVoltage,
+        rippleFrequency: measured.rippleFrequency,
+        reverseDuration: measured.reverseDuration,
+      });
+    }
+
+    if (comp.type === 'bjtTransistor') {
+      const readout = bjtReadouts.get(comp.id);
+      if (readout) {
+        const bjt = buildBjtSolution(readout.params, readout.lin, readout.nextTj);
+        // Branch voltage/current are the collector-emitter values for legacy
+        // labels and probes; the full terminal set drives wires/animations.
+        solution.voltage = readout.lin.vce;
+        solution.current = readout.lin.ic;
+        solution.power = readout.lin.power;
+        solution.currentDirection = readout.lin.ic >= 0 ? 1 : -1;
+        solution.terminalCurrents = [
+          readout.lin.ib,
+          readout.lin.ic,
+          readout.lin.ie,
+        ];
+        solution.bjt = bjt;
+        solution.junctionTemp = readout.nextTj;
+        solution.powerRatio = bjt.powerRatio;
+        solution.thermalWarning =
+          bjt.thermalState === 'high' || bjt.thermalState === 'critical';
+        solution.overload = bjt.overload;
+      }
+    }
+
     componentData.set(comp.id, solution);
   }
 
   state.zenerJunctionTemp = newZenerTemps;
+  state.capacitorTemperature = newCapTemps;
+  state.capacitorStats = newCapStats;
+  state.bjtJunctionTemp = newBjtTemps;
 
-  // ---- advance energy-storage state (Backward Euler) ----
+  // ---- advance energy-storage state ----
   const newCapVoltages = new Map(state.capacitorVoltage);
+  const newCapCurrents = new Map(state.capacitorCurrent);
   for (const comp of net.components) {
-    if (comp.type !== 'capacitor') continue;
-    const cFarad = Math.max(comp.value, 0);
-    if (cFarad <= 0 || safeDt <= 0) continue;
+    if (!isCapacitorType(comp.type)) continue;
     const prev = safe(state.capacitorVoltage.get(comp.id) ?? 0);
-    const current = safe(componentData.get(comp.id)?.current ?? 0);
-    // V(n+1) = V(n) + I·dt/C — identical to the solved endpoint voltage
-    // by construction of the companion model, but integrating explicitly
-    // keeps the state self-consistent even if the solve was iterative.
-    let vNew = prev + (current * safeDt) / cFarad;
-    if (!Number.isFinite(vNew)) vNew = prev;
-    // Clamp to keep extreme fault conditions from exploding the sim.
-    if (Math.abs(vNew) > 1e6) vNew = Math.sign(vNew) * 1e6;
-    newCapVoltages.set(comp.id, vNew);
+    const prevCurrent = safe(state.capacitorCurrent?.get(comp.id) ?? 0);
+    // The stored voltage is advanced by the current through the C element,
+    // never by leakage or breakdown current, which bypass the dielectric.
+    const elementCurrent = safe(capacitorElementCurrents.get(comp.id) ?? 0);
+
+    if (comp.type === 'capacitor') {
+      const cFarad = Math.max(comp.value, 0);
+      if (cFarad > 0 && safeDt > 0) {
+        let vNew = prev + (elementCurrent * safeDt) / cFarad;
+        if (!Number.isFinite(vNew)) vNew = prev;
+        if (Math.abs(vNew) > 1e6) vNew = Math.sign(vNew) * 1e6;
+        newCapVoltages.set(comp.id, vNew);
+      }
+      newCapCurrents.set(comp.id, elementCurrent);
+      continue;
+    }
+
+    const docComp = docById.get(comp.id);
+    const params = getCapacitorParameters(docComp ?? comp);
+    newCapVoltages.set(
+      comp.id,
+      advanceCapacitorVoltage(params, safeDt, prev, prevCurrent, elementCurrent),
+    );
+    newCapCurrents.set(comp.id, elementCurrent);
   }
   state.capacitorVoltage = newCapVoltages;
+  state.capacitorCurrent = newCapCurrents;
 
   const newIndCurrents = new Map(state.inductorCurrent);
   for (const comp of net.components) {
@@ -774,6 +1047,7 @@ function computeWireCurrents(
   for (const comp of topology.components) {
     if (comp.nodeA) termNode.set(`${comp.id}:0`, comp.nodeA);
     if (comp.nodeB) termNode.set(`${comp.id}:1`, comp.nodeB);
+    if (comp.nodeC) termNode.set(`${comp.id}:2`, comp.nodeC);
   }
 
   for (const wire of doc.wires) {
@@ -790,8 +1064,10 @@ function computeWireCurrents(
     if (startKey && termNode.has(startKey)) {
       const sol = compData.get(wire.start.componentId!);
       if (sol) {
-        current =
-          wire.start.terminalIndex === 0
+        const idx = wire.start.terminalIndex;
+        current = sol.terminalCurrents
+          ? (sol.terminalCurrents[idx] ?? 0)
+          : idx === 0
             ? sol.current * sol.currentDirection
             : -sol.current * sol.currentDirection;
         found = true;
@@ -801,8 +1077,10 @@ function computeWireCurrents(
     if (!found && endKey && termNode.has(endKey)) {
       const sol = compData.get(wire.end.componentId!);
       if (sol) {
-        current =
-          wire.end.terminalIndex === 0
+        const idx = wire.end.terminalIndex;
+        current = sol.terminalCurrents
+          ? -(sol.terminalCurrents[idx] ?? 0)
+          : idx === 0
             ? -sol.current * sol.currentDirection
             : sol.current * sol.currentDirection;
         found = true;

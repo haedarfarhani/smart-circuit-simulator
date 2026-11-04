@@ -15,215 +15,246 @@ export function AnalyzerPanel() {
   const doc = useCircuitStore((s) => s.doc);
 
   if (!analysis) {
-    return <div className="panel-empty">{t('analyzer.noData')}</div>;
+    return (
+      <div className="analyzer-empty">
+        <div className="analyzer-empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <path d="M3 20V10M9 20V4M15 20v-7M21 20V7" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div className="analyzer-empty-title">{t('analyzer.title')}</div>
+        <p className="analyzer-empty-text">{t('analyzer.noData')}</p>
+        <p className="analyzer-empty-hint">{t('analyzer.noDataHint')}</p>
+      </div>
+    );
   }
 
-  const handleShowProblem = (compId: string) => {
+  const selectComponent = (compId: string) => {
     useUiStore.getState().select([compId]);
     setHighlightedPath([compId]);
   };
 
+  const issues = analysis.errors.length + analysis.warnings.length;
+
+  const metrics: Array<{ key: string; label: string; value: string; tone?: 'accent' | 'power' }> = [
+    { key: 'nodes', label: t('analyzer.nodes'), value: String(analysis.nodesCount) },
+    { key: 'components', label: t('analyzer.components'), value: String(analysis.componentsCount) },
+    { key: 'branches', label: t('analyzer.branches'), value: String(analysis.branchesCount) },
+    { key: 'loops', label: t('analyzer.loops'), value: String(analysis.loopsCount) },
+    {
+      key: 'resistance',
+      label: t('analyzer.eqResistance'),
+      value:
+        analysis.equivalentResistance > 0
+          ? formatValue(analysis.equivalentResistance, 'Ω')
+          : '—',
+    },
+    {
+      key: 'current',
+      label: t('analyzer.totalCurrent'),
+      value: formatValue(analysis.totalCurrent, 'A'),
+      tone: 'accent',
+    },
+    {
+      key: 'power',
+      label: t('analyzer.totalPower'),
+      value: formatValue(analysis.totalPower, 'W'),
+      tone: 'power',
+    },
+    {
+      key: 'sections',
+      label: t('analyzer.connectedSections'),
+      value: String(analysis.connectedComponents),
+    },
+  ];
+
   return (
     <div className="analyzer-panel">
-      <div className="panel-title">{t('analyzer.title')}</div>
-
-      {/* Overview Section */}
-      <div className="analyzer-section">
-        <div className="analyzer-status">
-          {analysis.valid ? (
-            <span className="status-ok">
-              <span className="status-icon">✓</span>
-              {t('analyzer.valid')}
-            </span>
-          ) : (
-            <span className="status-err">
-              <span className="status-icon">✗</span>
-              {t('analyzer.invalid')}
-            </span>
-          )}
-        </div>
-
-        <div className="analyzer-stats-grid">
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.nodes')}</span>
-            <span className="stat-value">{analysis.nodesCount}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.components')}</span>
-            <span className="stat-value">{analysis.componentsCount}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.branches')}</span>
-            <span className="stat-value">{analysis.branchesCount}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.loops')}</span>
-            <span className="stat-value">{analysis.loopsCount}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.eqResistance')}</span>
-            <span className="stat-value">{analysis.equivalentResistance > 0
-              ? formatValue(analysis.equivalentResistance, 'Ω')
-              : '—'}
-            </span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.totalCurrent')}</span>
-            <span className="stat-value">{formatValue(analysis.totalCurrent, 'A')}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">{t('analyzer.totalPower')}</span>
-            <span className="stat-value">{formatValue(analysis.totalPower, 'W')}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">Connected Sections</span>
-            <span className="stat-value">{analysis.connectedComponents}</span>
+      <header className={`analyzer-hero ${analysis.valid ? 'is-ok' : 'is-err'}`}>
+        <span className="analyzer-hero-dot" aria-hidden="true" />
+        <div className="analyzer-hero-text">
+          <div className="analyzer-hero-title">{t('analyzer.title')}</div>
+          <div className="analyzer-hero-sub">
+            {analysis.componentsCount} {t('analyzer.components')} ·{' '}
+            {analysis.nodesCount} {t('analyzer.nodes')}
           </div>
         </div>
-      </div>
+        <span className="analyzer-pill">
+          {analysis.valid ? t('analyzer.valid') : t('analyzer.invalid')}
+        </span>
+      </header>
 
-      {/* Electrical Values Section */}
-      {analysis.valid && analysis.totalPower > 0 && (
-        <div className="analyzer-section">
-          <div className="section-subtitle">{t('analyzer.electricalValues')}</div>
-          <table className="analyzer-stats-table">
-            <tbody>
-              <tr>
-                <td>{t('analyzer.totalCurrent')}</td>
-                <td>{formatValue(analysis.totalCurrent, 'A')}</td>
-              </tr>
-              <tr>
-                <td>{t('analyzer.totalPower')}</td>
-                <td>{formatValue(analysis.totalPower, 'W')}</td>
-              </tr>
-              <tr>
-                <td>{t('analyzer.eqResistance')}</td>
-                <td>{formatValue(analysis.equivalentResistance, 'Ω')}</td>
-              </tr>
-            </tbody>
-          </table>
+      <section className="analyzer-block">
+        <div className="analyzer-block-head">
+          <span className="analyzer-block-title">{t('analyzer.overview')}</span>
         </div>
-      )}
-
-      {/* Issues Section */}
-      {(analysis.errors.length > 0 || analysis.warnings.length > 0) && (
-        <div className="analyzer-section issues">
-          <div className="section-subtitle">
-            {analysis.errors.length > 0 ? t('analyzer.invalid') : t('analyzer.valid')}
-          </div>
-          {analysis.errors.map((e, i) => (
-            <div key={`err-${i}`} className="analyzer-issue err">
-              <span className="issue-icon">⚠</span>
-              <span>{e}</span>
-              <button
-                className="issue-action"
-                onClick={() => {
-                  // Try to find the component ID in the error
-                  const match = e.match(/(R|V|C|L|SW|M|SOL|GND)(\d+)/);
-                  if (match) {
-                    const comp = doc.components.find(c =>
-                      c.label === match[0]
-                    );
-                    if (comp) handleShowProblem(comp.id);
-                  }
-                }}
-              >
-                {t('analyzer.showProblem') || 'Show'}
-              </button>
+        <div className="analyzer-metric-grid">
+          {metrics.map((m) => (
+            <div className="analyzer-metric-tile" key={m.key}>
+              <span className="analyzer-metric-k">{m.label}</span>
+              <span className={`analyzer-metric-v${m.tone ? ` ${m.tone}` : ''}`}>
+                {m.value}
+              </span>
             </div>
           ))}
+        </div>
+      </section>
+
+      {issues > 0 && (
+        <section className="analyzer-block">
+          <div className="analyzer-block-head">
+            <span className="analyzer-block-title">
+              {analysis.errors.length > 0
+                ? t('analyzer.invalid')
+                : t('analyzer.warnings')}
+            </span>
+            <span className="analyzer-count">{issues}</span>
+          </div>
+
+          {analysis.errors.map((e, i) => {
+            const match = e.match(/([A-Za-z]+)(\d+)/);
+            const comp = match
+              ? doc.components.find((c) => c.label === match[0])
+              : undefined;
+            return (
+              <div key={`err-${i}`} className="analyzer-issue err">
+                <span className="issue-badge" aria-hidden="true">
+                  !
+                </span>
+                <div className="issue-body">
+                  <span>{e}</span>
+                  {comp && (
+                    <button
+                      type="button"
+                      className="issue-link"
+                      onClick={() => selectComponent(comp.id)}
+                    >
+                      {t('analyzer.showProblem')}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
           {analysis.warnings.map((w, i) => (
             <div key={`warn-${i}`} className="analyzer-issue warn">
-              <span className="issue-icon">ℹ</span>
-              <span>{w}</span>
+              <span className="issue-badge" aria-hidden="true">
+                i
+              </span>
+              <div className="issue-body">
+                <span>{w}</span>
+              </div>
             </div>
           ))}
-        </div>
+        </section>
       )}
 
-      {/* Component Analysis Section */}
       {analysis.components.length > 0 && (
-        <div className="analyzer-section">
-          <div className="section-subtitle">{t('analyzer.componentsAnalysis')}</div>
-          <div className="analyzer-components-list">
+        <section className="analyzer-block">
+          <div className="analyzer-block-head">
+            <span className="analyzer-block-title">
+              {t('analyzer.componentsAnalysis')}
+            </span>
+            <span className="analyzer-count">{analysis.components.length}</span>
+          </div>
+
+          <div className="analyzer-comp-list">
             {analysis.components.map((c) => {
               const def = SYMBOLS[c.type as keyof typeof SYMBOLS];
               const isHighlighted = highlightedPath.includes(c.id);
 
               return (
-                <div
+                <article
                   key={c.id}
-                  className={`analyzer-comp-card ${isHighlighted ? 'highlighted' : ''}`}
+                  className={`analyzer-comp-card${isHighlighted ? ' is-selected' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isHighlighted}
+                  onClick={() => selectComponent(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      selectComponent(c.id);
+                    }
+                  }}
                 >
-                  <div className="comp-card-header">
-                    <strong>{c.label}</strong>
-                    <span>{def ? t(`lib.component.${c.type}`) : c.type}</span>
+                  <div className="analyzer-comp-top">
+                    <span className="analyzer-comp-label">{c.label}</span>
+                    <span className="analyzer-comp-type">
+                      {def ? t(`lib.component.${c.type}`) : c.type}
+                    </span>
+                    {c.state !== 'normal' && (
+                      <span className={`comp-state-pill ${c.state}`}>
+                        {t(`analyzer.state.${c.state}`)}
+                      </span>
+                    )}
                     {isHighlighted && (
-                      <span className="highlight-badge">Selected</span>
+                      <span className="analyzer-selected-chip">
+                        {t('analyzer.selected')}
+                      </span>
                     )}
                   </div>
-                  <div className="comp-card-value">
-                    {def?.unit ? formatValue(c.value, def.unit) : ''}
+
+                  <div className="analyzer-comp-value">
+                    {def?.unit ? formatValue(c.value, def.unit) : '—'}
                   </div>
 
                   {analysis.valid && (
-                    <div className="comp-card-metrics">
-                      <div className="metric">
-                        <span className="metric-label">V</span>
-                        <span className="metric-value voltage">{formatValue(c.voltage, 'V')}</span>
+                    <div className="analyzer-comp-metrics">
+                      <div className="analyzer-metric">
+                        <span className="analyzer-metric-k">V</span>
+                        <span className="analyzer-metric-v voltage">
+                          {formatValue(c.voltage, 'V')}
+                        </span>
                       </div>
-                      <div className="metric">
-                        <span className="metric-label">I</span>
-                        <span className="metric-value current">{formatValue(c.current, 'A')}</span>
+                      <div className="analyzer-metric">
+                        <span className="analyzer-metric-k">I</span>
+                        <span className="analyzer-metric-v current">
+                          {formatValue(c.current, 'A')}
+                        </span>
                       </div>
-                      <div className="metric">
-                        <span className="metric-label">P</span>
-                        <span className="metric-value power">{formatValue(c.power, 'W')}</span>
+                      <div className="analyzer-metric">
+                        <span className="analyzer-metric-k">P</span>
+                        <span className="analyzer-metric-v power">
+                          {formatValue(c.power, 'W')}
+                        </span>
                       </div>
                     </div>
                   )}
 
-                  {c.state !== 'normal' && (
-                    <div className={`comp-state ${c.state}`}>
-                      {t(`analyzer.state.${c.state}`)}
-                    </div>
-                  )}
-
-                  {/* Series/Parallel info */}
                   {(c.seriesWith.length > 0 || c.parallelWith.length > 0) && (
-                    <div className="comp-relations">
+                    <div className="analyzer-relations">
                       {c.seriesWith.length > 0 && (
-                        <div className="relation">
-                          <span className="relation-label">Series:</span>
-                          <span className="relation-values">
-                            {c.seriesWith.map(id => {
-                              const comp = doc.components.find(c => c.id === id);
-                              return comp?.label || id;
-                            }).join(', ')}
-                          </span>
-                        </div>
+                        <span className="analyzer-rel-chip">
+                          <b>{t('analyzer.series')}</b>
+                          {c.seriesWith
+                            .map(
+                              (id) =>
+                                doc.components.find((x) => x.id === id)?.label ?? id,
+                            )
+                            .join(' · ')}
+                        </span>
                       )}
                       {c.parallelWith.length > 0 && (
-                        <div className="relation">
-                          <span className="relation-label">Parallel:</span>
-                          <span className="relation-values">
-                            {c.parallelWith.map(id => {
-                              const comp = doc.components.find(c => c.id === id);
-                              return comp?.label || id;
-                            }).join(', ')}
-                          </span>
-                        </div>
+                        <span className="analyzer-rel-chip">
+                          <b>{t('analyzer.parallel')}</b>
+                          {c.parallelWith
+                            .map(
+                              (id) =>
+                                doc.components.find((x) => x.id === id)?.label ?? id,
+                            )
+                            .join(' · ')}
+                        </span>
                       )}
                     </div>
                   )}
-                </div>
+                </article>
               );
             })}
           </div>
-        </div>
+        </section>
       )}
-
-
     </div>
   );
 }

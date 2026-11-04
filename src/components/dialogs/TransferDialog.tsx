@@ -1,51 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 import { makeT } from '../../i18n';
 import { useCircuitStore } from '../../store/circuitStore';
 import { useUiStore } from '../../store/uiStore';
 import { validateDoc } from '../../core/validate';
-
-function DialogShell({
-  title,
-  onClose,
-  children,
-  footer,
-}: {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-  footer?: ReactNode;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
-
-  return (
-    <div
-      className="overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="dialog" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="dialog-head">
-          <h2>{title}</h2>
-          <button className="close-x" onClick={onClose} aria-label="Close">
-            ×
-          </button>
-        </div>
-        <div className="dialog-body">{children}</div>
-        {footer && <div className="dialog-foot">{footer}</div>}
-      </div>
-    </div>
-  );
-}
+import { DialogShell } from './DialogShell';
 
 export function TransferDialog({ mode }: { mode: 'import' | 'export' }) {
   const t = makeT(useUiStore((s) => s.locale));

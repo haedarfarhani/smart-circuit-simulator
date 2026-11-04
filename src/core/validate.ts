@@ -18,6 +18,7 @@ function isPoint(v: unknown): v is Point {
 const COMPONENT_TYPES = new Set([
   'resistor',
   'capacitor',
+  'polarized-capacitor',
   'lamp',
   'switch',
   'battery',
@@ -29,7 +30,88 @@ const COMPONENT_TYPES = new Set([
   'acVoltageSource',
   'currentSource',
   'acMotor',
+  'zenerDiode',
+  'bjtTransistor',
+  'zener-diode',
 ]);
+
+/** Optional numeric component fields preserved through import/export. */
+const NUMERIC_FIELDS = [
+  'inductance',
+  'frequency',
+  'phaseDeg',
+  'offset',
+  'forwardVoltage',
+  'zenerVoltage',
+  'zenerTestCurrent',
+  'zenerKneeCurrent',
+  'zenerResistance',
+  'forwardResistance',
+  'reverseLeakage',
+  'ratedPower',
+  'tempCoeff',
+  'maxJunctionTemp',
+  'ambientTemp',
+  'thermalResistance',
+  'thermalCapacitance',
+  'beta',
+  'vbe',
+  'vceSat',
+  'isLeak',
+  'is',
+  'nf',
+  'nr',
+  'vaf',
+  'var_',
+  'bf',
+  'br',
+  'tAmbient',
+  'tMax',
+  'rth',
+  'ratedVoltage',
+  'initialVoltage',
+  'initialCharge',
+  'tolerance',
+  'esr',
+  'esl',
+  'leakageCurrent',
+  'leakageResistance',
+  'reverseBreakdownVoltage',
+  'maxRippleCurrent',
+  'rippleFrequency',
+  'maxTemp',
+  'dielectricAbsorption',
+  'cth',
+  'pMax',
+  'vceo',
+  'vcbo',
+  'vebo',
+  'icMax',
+  'nominalTemp',
+  'betaTempCoeff',
+] as const;
+
+/** Optional string component fields preserved through import/export. */
+const STRING_FIELDS = [
+  'zenerModel',
+  'tempCoeffUnit',
+  'preset',
+  'color',
+  'technology',
+  'capacitorModel',
+  'capacitorIntegration',
+  'failureBehavior',
+  'manufacturer',
+  'partNumber',
+  'description',
+] as const;
+
+/** Optional boolean component fields preserved through import/export. */
+const BOOLEAN_FIELDS = [
+  'dynamicThermal',
+  'mirrored',
+  'initialConditionEnabled',
+] as const;
 
 /**
  * Validate an arbitrary JSON value as a circuit document.
@@ -70,6 +152,25 @@ export function validateDoc(raw: unknown): ValidationResult {
     const rotation = [0, 90, 180, 270].includes(comp.rotation as number)
       ? comp.rotation
       : 0;
+    const extras: Record<string, unknown> = {};
+    for (const key of NUMERIC_FIELDS) {
+      const v = comp[key];
+      if (typeof v === 'number' && Number.isFinite(v)) extras[key] = v;
+    }
+    for (const key of STRING_FIELDS) {
+      const v = comp[key];
+      if (typeof v === 'string') extras[key] = v;
+    }
+    for (const key of BOOLEAN_FIELDS) {
+      const v = comp[key];
+      if (typeof v === 'boolean') extras[key] = v;
+    }
+    if (comp.transistorType === 'npn' || comp.transistorType === 'pnp') {
+      extras.transistorType = comp.transistorType;
+    }
+    if (comp.modelType === 'simplified' || comp.modelType === 'ebers-moll') {
+      extras.modelType = comp.modelType;
+    }
     components.push({
       id: comp.id,
       type: comp.type as CircuitComponent['type'],
@@ -78,19 +179,8 @@ export function validateDoc(raw: unknown): ValidationResult {
       rotation: rotation as CircuitComponent['rotation'],
       label: typeof comp.label === 'string' && comp.label ? comp.label : `#${i + 1}`,
       value: typeof comp.value === 'number' && Number.isFinite(comp.value) ? comp.value : 0,
-      ...(typeof comp.inductance === 'number' && Number.isFinite(comp.inductance)
-        ? { inductance: comp.inductance }
-        : {}),
-      ...(typeof comp.frequency === 'number' && Number.isFinite(comp.frequency)
-        ? { frequency: comp.frequency }
-        : {}),
-      ...(typeof comp.forwardVoltage === 'number' && Number.isFinite(comp.forwardVoltage)
-        ? { forwardVoltage: comp.forwardVoltage }
-        : {}),
-      ...(typeof comp.color === 'string'
-        ? { color: comp.color as CircuitComponent['color'] }
-        : {}),
-    });
+      ...extras,
+    } as CircuitComponent);
   }
 
   const wires: Wire[] = [];

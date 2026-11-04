@@ -110,6 +110,19 @@ function admittanceOf(comp: ComponentInfo, omega: number, supplyVoltage: number)
       // Y = jωC
       return cx(0, omega * Math.max(comp.value, 0));
 
+    case 'polarized-capacitor': {
+      // Z = ESR + 1/(jωC), with the leakage resistance in parallel.
+      // ESR is what makes a real electrolytic's AC current differ from
+      // the ideal C·ω·V prediction, so it belongs in the admittance.
+      const c = Math.max(comp.value, 0);
+      const esr = Math.max(0, comp.esr ?? 0);
+      const series = cDiv(cx(1), cx(0, omega * Math.max(c, 1e-18)));
+      let y = cDiv(cx(1), cAdd(cx(esr), series));
+      const rLeak = comp.leakageResistance ?? 0;
+      if (rLeak > 0) y = cAdd(y, cx(1 / rLeak));
+      return y;
+    }
+
     case 'solenoid': {
       // Z = R + jωL
       const l = Math.max(comp.inductance ?? 0, 0);

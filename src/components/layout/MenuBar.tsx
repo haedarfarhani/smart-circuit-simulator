@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCircuitStore } from '../../store/circuitStore';
 import { useUiStore } from '../../store/uiStore';
-import { useSimulationStore } from '../../store/simulationStore';
+import { SIM_SPEED_PRESETS, simSpeedLabel, useSimulationStore } from '../../store/simulationStore';
 import { makeT } from '../../i18n';
 import { EXAMPLE_CIRCUITS, getExample } from '../../core/examples';
 
@@ -50,7 +50,7 @@ function HeaderSimulationControls() {
     return () => window.removeEventListener('mousedown', onDown);
   }, [speedMenuOpen]);
 
-  const speedPresets = [0.5, 1, 2, 5];
+  const speedPresets = SIM_SPEED_PRESETS;
 
   return (
     <div className="sim-header-group">
@@ -117,7 +117,7 @@ function HeaderSimulationControls() {
                     setSpeedMenuOpen(false);
                   }}
                 >
-                  {sp}x
+                  {simSpeedLabel(sp)}
                 </button>
               ))}
             </div>
@@ -125,7 +125,7 @@ function HeaderSimulationControls() {
               <input
                 type="range"
                 min="0.1"
-                max="5"
+                max="10"
                 step="0.1"
                 value={ui.simulationSpeed}
                 onChange={(e) => ui.setSimulationSpeed(Number(e.target.value))}
@@ -167,20 +167,20 @@ export function MenuBar() {
       labelKey: 'menu.file.new',
       shortcut: 'Ctrl+N',
       action: () => {
-        if (
-          store.doc.components.length === 0 ||
-          window.confirm(t('menu.file.new') + '?')
-        ) {
+        if (store.doc.components.length === 0) {
           store.newCircuit();
           ui.clearSelection();
           ui.setWireDraft(null);
           ui.setStatus('status.ready');
+        } else {
+          ui.setDialog('confirm-new');
         }
       },
     },
     { labelKey: '', separator: true },
     { labelKey: 'menu.file.export', shortcut: 'Ctrl+S', action: () => ui.setDialog('transfer-export') },
     { labelKey: 'menu.file.import', shortcut: 'Ctrl+O', action: () => ui.setDialog('transfer-import') },
+    { labelKey: 'menu.file.settings', action: () => ui.setDialog('settings') },
     { labelKey: '', separator: true },
     ...EXAMPLE_CIRCUITS.map((ex) => ({
       labelKey: ex.nameKey,
@@ -257,8 +257,16 @@ export function MenuBar() {
       action: () => ui.setGridVisible(!ui.gridVisible),
     },
     {
+      labelKey: 'menu.view.toggleLegend',
+      action: () => ui.setLegendVisible(!ui.legendVisible),
+    },
+    {
       labelKey: 'menu.view.toggleTheme',
       action: () => ui.toggleTheme(),
+    },
+    {
+      labelKey: 'menu.file.settings',
+      action: () => ui.setDialog('settings'),
     },
   ];
 
@@ -467,6 +475,17 @@ export function MenuBar() {
               <path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z" strokeLinejoin="round" />
             </svg>
           )}
+        </button>
+
+        <button
+          className="theme-toggle-btn"
+          title={t('settings.open')}
+          aria-label={t('settings.open')}
+          onClick={() => ui.setDialog('settings')}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z" />
+          </svg>
         </button>
 
         <button

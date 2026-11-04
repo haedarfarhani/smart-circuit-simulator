@@ -1,18 +1,19 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { makeT } from '../../i18n';
 import { useCircuitStore } from '../../store/circuitStore';
 import { useUiStore } from '../../store/uiStore';
 import { CATEGORIES, SYMBOLS, switchLever } from '../../core/symbols';
 import type { ComponentType } from '../../models/circuit';
 
+/** Uniform preview window so every symbol renders at the same world scale. */
+const PREVIEW_WINDOW = '-52 -32 104 64';
+
 /** Small live preview of a component symbol for the library tile. */
 function SymbolPreview({ type }: { type: ComponentType }) {
   const def = SYMBOLS[type];
-  const halfW = def.w / 2 + 6;
-  const halfH = Math.max(def.h / 2 + 6, 24);
   return (
     <svg
-      viewBox={`${-halfW} ${-halfH} ${halfW * 2} ${halfH * 2}`}
+      viewBox={PREVIEW_WINDOW}
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
     >
@@ -29,9 +30,12 @@ function LibraryItem({ type }: { type: ComponentType }) {
   const addAtCenter = useCircuitStore((s) => s.addComponent);
   const select = useUiStore((s) => s.select);
   const setStatus = useUiStore((s) => s.setStatus);
+  const favorite = useUiStore((s) => s.favoriteTypes.includes(type));
+  const toggleFavorite = useUiStore((s) => s.toggleFavorite);
 
   const placeAtCenter = () => {
     const ui = useUiStore.getState();
+    ui.recordRecent(type);
     const rect = document
       .querySelector('.canvas-wrap')
       ?.getBoundingClientRect();
@@ -82,22 +86,39 @@ function LibraryItem({ type }: { type: ComponentType }) {
   const label = t(`lib.component.${type}`);
 
   return (
-    <button
-      className="lib-item"
-      draggable
-      title={`${label} — ${t('lib.dropHint')}`}
-      onDragStart={(e) => {
-        e.dataTransfer.setData('application/x-circuit-type', type);
-        e.dataTransfer.effectAllowed = 'copy';
-      }}
-      onClick={placeAtCenter}
-    >
-      <div className="lib-item-icon-wrap">
-        <SymbolPreview type={type} />
-      </div>
-      <span className="lib-item-label">{label}</span>
-      <span className="lib-item-badge">{SYMBOLS[type].unit || '•'}</span>
-    </button>
+    <div className="lib-item-wrap">
+      <button
+        className="lib-item"
+        draggable
+        title={`${label} — ${t('lib.dropHint')}`}
+        onDragStart={(e) => {
+          e.dataTransfer.setData('application/x-circuit-type', type);
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
+        onClick={placeAtCenter}
+      >
+        <div className="lib-item-icon-wrap">
+          <SymbolPreview type={type} />
+        </div>
+        <span className="lib-item-label">{label}</span>
+        <span className="lib-item-badge">{SYMBOLS[type].unit || '•'}</span>
+      </button>
+      <button
+        type="button"
+        className={`lib-item-star${favorite ? ' is-on' : ''}`}
+        title={favorite ? t('lib.favoriteRemove') : t('lib.favoriteAdd')}
+        aria-label={`${favorite ? t('lib.favoriteRemove') : t('lib.favoriteAdd')}: ${label}`}
+        aria-pressed={favorite}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleFavorite(type);
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1.5l1.9 4.1 4.6.6-3.4 3.1.9 4.5L8 11.6l-4 2.2.9-4.5L1.5 6.2l4.6-.6L8 1.5z" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -112,28 +133,28 @@ function WireLibraryItem() {
 
   return (
     <button
-      className="lib-item"
+      className="lib-item lib-wire-item"
       data-active={active}
       aria-pressed={active}
       title={`${t('tool.wire')} (W)`}
       onClick={() => setTool('wire')}
     >
       <div className="lib-item-icon-wrap">
-        <svg viewBox="0 0 120 60" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <svg viewBox="-52 -32 104 64" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
           <g className="sym-group" style={{ color: 'inherit' }}>
             <path
               className="sym-line"
-              d="M10 20h100"
+              d="M -50 0 H 50"
               fill="none"
               strokeLinecap="round"
             />
             <path
               className="sym-line"
-              d="M60 20v30"
+              d="M 0 0 V 24"
               fill="none"
               strokeLinecap="round"
             />
-            <circle className="sym-fill" cx="60" cy="20" r="4.5" />
+            <circle className="sym-fill" cx="0" cy="0" r="4.5" />
           </g>
         </svg>
       </div>
@@ -143,12 +164,38 @@ function WireLibraryItem() {
   );
 }
 
+/** Collapsible library section with a labeled header and item count. */
+function LibSection({
+  label,
+  count,
+  children,
+}: {
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <details className="lib-section" open>
+      <summary className="lib-category-name">
+        <span className="lib-category-label">{label}</span>
+        <span className="lib-count">{count}</span>
+        <svg className="lib-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m3 6 5 5 5-5" />
+        </svg>
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 export function LibrarySidebar() {
   const t = makeT(useUiStore((s) => s.locale));
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const favoriteTypes = useUiStore((s) => s.favoriteTypes);
+  const recentTypes = useUiStore((s) => s.recentTypes);
 
   if (collapsed) {
     return (
@@ -189,9 +236,18 @@ export function LibrarySidebar() {
     { id: 'all', label: t('lib.category.all') },
     { id: 'sources', label: t('lib.category.sources') },
     { id: 'passive', label: t('lib.category.passive') },
+    { id: 'semiconductors', label: t('lib.category.semiconductors') },
     { id: 'switches', label: t('lib.category.switches') },
     { id: 'actuators', label: t('lib.category.actuators') },
   ];
+
+  // persisted prefs are plain strings — keep only types that still exist
+  const favorites = favoriteTypes.filter(
+    (type) => (type as ComponentType) in SYMBOLS,
+  ) as ComponentType[];
+  const recents = recentTypes.filter(
+    (type) => (type as ComponentType) in SYMBOLS,
+  ) as ComponentType[];
 
   return (
     <aside className="library" aria-label={t('lib.title')}>
@@ -257,24 +313,26 @@ export function LibrarySidebar() {
         {/* Wiring card when showing all or passives/connections */}
         {(!search || 'wire'.includes(normalizedSearch) || t('tool.wire').toLowerCase().includes(normalizedSearch)) &&
           (activeCategory === 'all' || activeCategory === 'passive') && (
-            <div className="lib-section">
-              <div className="lib-category-name">{t('lib.connections')}</div>
+            <LibSection label={t('lib.connections')} count={1}>
               <div className="lib-grid">
                 <WireLibraryItem />
               </div>
-            </div>
+            </LibSection>
           )}
 
         {/* Grouped or filtered components */}
         {search || activeCategory !== 'all' ? (
           filteredTypes.length > 0 ? (
-            <div className="lib-section">
+            <LibSection
+              label={activeCategory === 'all' ? t('lib.category.all') : t('lib.category.' + activeCategory)}
+              count={filteredTypes.length}
+            >
               <div className="lib-grid">
                 {filteredTypes.map((type) => (
                   <LibraryItem type={type} key={type} />
                 ))}
               </div>
-            </div>
+            </LibSection>
           ) : (
             <div className="lib-no-results">
               <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
@@ -285,20 +343,41 @@ export function LibrarySidebar() {
             </div>
           )
         ) : (
-          CATEGORIES.map((cat) => {
-            const items = allTypes.filter((type) => SYMBOLS[type].category === cat.id);
-            if (items.length === 0) return null;
-            return (
-              <div className="lib-section" key={cat.id}>
-                <div className="lib-category-name">{t(cat.labelKey)}</div>
-                <div className="lib-grid">
-                  {items.map((type) => (
+          <>
+            {favorites.length > 0 && (
+              <LibSection label={t('lib.favorites')} count={favorites.length}>
+                <div className="lib-strip">
+                  {favorites.map((type) => (
                     <LibraryItem type={type} key={type} />
                   ))}
                 </div>
-              </div>
-            );
-          })
+              </LibSection>
+            )}
+            {recents.length > 0 && (
+              <LibSection label={t('lib.recents')} count={recents.length}>
+                <div className="lib-strip">
+                  {recents.slice(0, 8).map((type) => (
+                    <LibraryItem type={type} key={type} />
+                  ))}
+                </div>
+              </LibSection>
+            )}
+            {CATEGORIES.map((cat) => {
+              // filteredTypes already drops the hyphenated Zener alias, so the
+              // grouped view cannot render two identical Zener tiles.
+              const items = filteredTypes.filter((type) => SYMBOLS[type].category === cat.id);
+              if (items.length === 0) return null;
+              return (
+                <LibSection label={t(cat.labelKey)} count={items.length} key={cat.id}>
+                  <div className="lib-grid">
+                    {items.map((type) => (
+                      <LibraryItem type={type} key={type} />
+                    ))}
+                  </div>
+                </LibSection>
+              );
+            })}
+          </>
         )}
       </div>
 

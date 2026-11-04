@@ -266,6 +266,7 @@ export function applyZenerPreset(presetKey: string): Partial<CircuitComponent> {
     reverseLeakage: p.ileak,
     ratedPower: p.pmax,
     tempCoeff: p.tempCoeff,
+    tempCoeffUnit: 'mV',
     thermalResistance: p.rth,
     thermalCapacitance: p.cth,
   };
@@ -281,7 +282,9 @@ export interface ZenerParameters {
   ileak: number; // Reverse leakage current (A)
   pmax: number; // Maximum power rating (W)
   model: ZenerModelType;
-  tempCoeff: number; // mV/°C
+  tempCoeff: number; // expressed in tempCoeffUnit
+  tempCoeffUnit: 'mV' | 'V' | 'percent';
+  maxJunctionTemp: number; // °C
   ambientTemp: number; // °C
   thermalResistance: number; // °C/W
   thermalCapacitance: number; // J/°C
@@ -310,6 +313,12 @@ export function getZenerParameters(comp: Partial<CircuitComponent>): ZenerParame
   const ileak = comp.reverseLeakage && comp.reverseLeakage > 0 ? comp.reverseLeakage : p.ileak;
   const pmax = comp.ratedPower && comp.ratedPower > 0 ? comp.ratedPower : p.pmax;
   const tempCoeff = comp.tempCoeff !== undefined ? comp.tempCoeff : p.tempCoeff;
+  const tempCoeffUnit =
+    comp.tempCoeffUnit === 'V' || comp.tempCoeffUnit === 'percent'
+      ? comp.tempCoeffUnit
+      : 'mV';
+  const maxJunctionTemp =
+    comp.maxJunctionTemp && comp.maxJunctionTemp > 0 ? comp.maxJunctionTemp : 150;
   const ambientTemp = comp.ambientTemp !== undefined ? comp.ambientTemp : 25;
   const thermalResistance = comp.thermalResistance && comp.thermalResistance > 0 ? comp.thermalResistance : p.rth;
   const thermalCapacitance = comp.thermalCapacitance && comp.thermalCapacitance > 0 ? comp.thermalCapacitance : p.cth;
@@ -327,6 +336,8 @@ export function getZenerParameters(comp: Partial<CircuitComponent>): ZenerParame
     pmax,
     model,
     tempCoeff,
+    tempCoeffUnit,
+    maxJunctionTemp,
     ambientTemp,
     thermalResistance,
     thermalCapacitance,
@@ -335,13 +346,25 @@ export function getZenerParameters(comp: Partial<CircuitComponent>): ZenerParame
 }
 
 /**
+ * Convert the configured temperature coefficient to V/°C.
+ * Low-voltage true Zeners can be negative; avalanche-dominated parts are
+ * commonly positive. The unit is user-selectable (mV/°C, V/°C, %/°C).
+ */
+export function tempCoeffVperC(params: ZenerParameters): number {
+  if (params.tempCoeffUnit === 'percent') {
+    return (params.tempCoeff / 100) * params.vzNominal;
+  }
+  if (params.tempCoeffUnit === 'V') return params.tempCoeff;
+  return params.tempCoeff * 1e-3;
+}
+
+/**
  * Calculate effective breakdown voltage accounting for temperature:
  * Vz(Tj) = Vz_nominal + alpha * (Tj - 25°C)
- * where alpha is in mV/°C = 1e-3 V/°C.
  */
 export function effectiveZenerVoltage(params: ZenerParameters, tj: number = 25): number {
   const deltaT = tj - 25;
-  const deltaVz = (params.tempCoeff * 1e-3) * deltaT;
+  const deltaVz = tempCoeffVperC(params) * deltaT;
   return Math.max(0.5, params.vzNominal + deltaVz);
 }
 
@@ -642,12 +665,13 @@ export function evaluateZenerStatus(
   }
 
   const isOverloaded = pRatio > 1.0;
-  const isThermalWarning = pRatio > 0.8 || tj > 125;
+  const tmax = params.maxJunctionTemp > 0 ? params.maxJunctionTemp : 150;
+  const isThermalWarning = pRatio > 0.8 || tj > tmax * 0.85;
 
   if (isOverloaded) {
     statusText = 'OVERLOAD — Exceeds Rated Power!';
   } else if (isThermalWarning) {
-    statusText = `${statusText} — Elevated Temperature`;
+    statusText = `${statusText} — Elevated Temperature / Near Tj,max`;
   }
 
   // Small-signal dynamic resistance

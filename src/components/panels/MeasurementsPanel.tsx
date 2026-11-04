@@ -72,6 +72,82 @@ export function MeasurementsPanel() {
                   <dd>{formatValue(c.value, unit)}</dd>
                 </div>
               )}
+              {data.bjt && (
+                <>
+                  <div>
+                    <dt>{t('bjt.region')}</dt>
+                    <dd>{t(`bjt.region.${data.bjt.region}`)}</dd>
+                  </div>
+                  <div>
+                    <dt>VBE</dt>
+                    <dd>{data.bjt.vbe.toFixed(3)} V</dd>
+                  </div>
+                  <div>
+                    <dt>VCE</dt>
+                    <dd>{data.bjt.vce.toFixed(3)} V</dd>
+                  </div>
+                  <div>
+                    <dt>IB</dt>
+                    <dd>{(data.bjt.ib * 1e6).toFixed(2)} µA</dd>
+                  </div>
+                  <div>
+                    <dt>IC</dt>
+                    <dd>{(data.bjt.ic * 1e3).toFixed(3)} mA</dd>
+                  </div>
+                  <div>
+                    <dt>{t('bjt.beta')}</dt>
+                    <dd>{Math.abs(data.bjt.ib) > 1e-12 ? data.bjt.beta.toFixed(1) : '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('bjt.junctionTemp')}</dt>
+                    <dd>{data.bjt.tj.toFixed(1)} °C</dd>
+                  </div>
+                </>
+              )}
+              {data.capacitor && (
+                <>
+                  <div>
+                    <dt>{t('cap.charge')}</dt>
+                    <dd>{(data.capacitor.charge * 1e6).toFixed(2)} µC</dd>
+                  </div>
+                  <div>
+                    <dt>{t('cap.energy')}</dt>
+                    <dd>
+                      {formatValue(data.capacitor.energy, 'J')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('cap.polarity') ?? 'Polarity'}</dt>
+                    <dd>
+                      {data.capacitor.polarity === 'reverse'
+                        ? 'REVERSE'
+                        : data.capacitor.polarity === 'normal'
+                          ? '+ / −'
+                          : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('cap.temperature')}</dt>
+                    <dd>{data.capacitor.temperature.toFixed(1)} °C</dd>
+                  </div>
+                  <div>
+                    <dt>{t('cap.rmsCurrent')}</dt>
+                    <dd>{data.capacitor.rmsCurrent.toFixed(3)} A</dd>
+                  </div>
+                  {data.capacitor.reverseVoltage > 0 && (
+                    <div>
+                      <dt>{t('cap.reverseVoltage')}</dt>
+                      <dd>{data.capacitor.reverseVoltage.toFixed(3)} V</dd>
+                    </div>
+                  )}
+                  {(data.capacitor.overvoltage || data.capacitor.breakdown) && (
+                    <div>
+                      <dt>{t('cap.state')}</dt>
+                      <dd>{data.capacitor.breakdown ? 'BREAKDOWN' : 'OVERVOLTAGE'}</dd>
+                    </div>
+                  )}
+                </>
+              )}
             </dl>
           </article>
         );

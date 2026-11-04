@@ -4,6 +4,7 @@ import {
   useUiStore,
   type VizColors,
 } from '../../store/uiStore';
+import { DialogShell } from './DialogShell';
 
 const FIELDS: { key: keyof VizColors; label: string }[] = [
   { key: 'current', label: 'legend.current' },
@@ -25,38 +26,11 @@ export function SettingsDialog() {
   const close = () => useUiStore.getState().setDialog(null);
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label={t('settings.title')}>
-        <div className="dialog-head">
-          <h2>{t('settings.title')}</h2>
-          <button className="close-x" onClick={close} aria-label={t('dialog.close')}>
-            ×
-          </button>
-        </div>
-        <div className="dialog-body">
-          <div className="field">
-            <label>{t('settings.theme')}</label>
-            <select value={theme} onChange={(e) => setTheme(e.target.value as typeof theme)}>
-              <option value="dark">{t('theme.dark')}</option>
-              <option value="light">{t('theme.light')}</option>
-              <option value="system">{t('theme.system')}</option>
-            </select>
-          </div>
-          <div className="presets-title">{t('settings.viz')}</div>
-          <div className="viz-fields">
-            {FIELDS.map((f) => (
-              <label key={f.key} className="viz-field">
-                <span>{t(f.label)}</span>
-                <input
-                  type="color"
-                  value={viz[f.key]}
-                  onChange={(e) => setViz({ [f.key]: e.target.value })}
-                />
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="dialog-foot">
+    <DialogShell
+      title={t('settings.title')}
+      onClose={close}
+      footer={
+        <>
           <button
             type="button"
             className="btn"
@@ -67,8 +41,31 @@ export function SettingsDialog() {
           <button type="button" className="btn primary" onClick={close}>
             {t('dialog.close')}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="field">
+        <label>{t('settings.theme')}</label>
+        <select value={theme} onChange={(e) => setTheme(e.target.value as typeof theme)}>
+          <option value="dark">{t('theme.dark')}</option>
+          <option value="light">{t('theme.light')}</option>
+          <option value="system">{t('theme.system')}</option>
+        </select>
       </div>
-    </div>
+      <div className="presets-title">{t('settings.viz')}</div>
+      <div className="viz-fields">
+        {FIELDS.map((f) => (
+          <label key={f.key} className="viz-field">
+            <span>{t(f.label)}</span>
+            <input
+              type="color"
+              value={viz[f.key]}
+              onChange={(e) => setViz({ [f.key]: e.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+      <p className="settings-note">{t('legend.note')}</p>
+    </DialogShell>
   );
 }

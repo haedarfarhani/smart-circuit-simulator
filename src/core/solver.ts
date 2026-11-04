@@ -1,4 +1,4 @@
-import { DEFAULT_SOLENOID_INDUCTANCE } from '../models/circuit';
+﻿import { DEFAULT_SOLENOID_INDUCTANCE } from '../models/circuit';
 import type { CircuitDoc, ComponentType, Wire, ZenerModelType } from '../models/circuit';
 import {
   isZenerDiode,
@@ -9,17 +9,26 @@ import {
   type ZenerParameters,
 } from './zenerModel';
 import {
-  calculateEbersMoll,
+  bjtLinearization,
+  buildBjtSolution,
   getBjtParameters,
+  limitJunctionStep,
+  type BjtSolution,
 } from './bjtModel';
+import {
+  buildCapacitorReadout,
+  getCapacitorParameters,
+  isCapacitorType,
+  type CapacitorSolution,
+} from './capacitorModel';
 
 /**
  * Instantaneous AC voltage from a real sinusoidal source.
  *
- * v(t) = Voffset + Vpeak·sin(2π·f·t + φ)
+ * v(t) = Voffset + VpeakÂ·sin(2Ï€Â·fÂ·t + Ï†)
  *
- * The UI expresses the source in RMS, so Vpeak = Vrms·√2. A 12 Vrms,
- * 50 Hz source therefore swings between about ±16.97 V, not ±12 V.
+ * The UI expresses the source in RMS, so Vpeak = VrmsÂ·âˆš2. A 12 Vrms,
+ * 50 Hz source therefore swings between about Â±16.97 V, not Â±12 V.
  */
 export function acInstantaneous(
   vrms: number,
@@ -74,23 +83,29 @@ export interface ComponentSolution {
   overload?: boolean;
   /** Zener diode operating state */
   zenerState?: 'forward' | 'blocking' | 'breakdown' | 'idle';
-  /** Junction temperature (°C) */
+  /** Junction temperature (Â°C) */
   junctionTemp?: number;
   /** Power dissipation ratio (P / Prated) */
   powerRatio?: number;
-  /** Effective dynamic resistance at the operating point (Ω) */
+  /** Effective dynamic resistance at the operating point (Î©) */
   dynamicResistance?: number;
   /** High temperature or power safety warning */
   thermalWarning?: boolean;
   /** Effective breakdown voltage accounting for temperature */
   effectiveVz?: number;
+  /** Polarized-capacitor operating point (charge, energy, ESR, polarity, ripple) */
+  capacitor?: CapacitorSolution;
+  /** BJT operating point (region, terminal currents, gain, dissipation) */
+  bjt?: BjtSolution;
+  /** Per-terminal currents, positive into the device (BJT) */
+  terminalCurrents?: number[];
 }
 
 export interface CircuitTopology {
   nodes: Map<string, NodeInfo>;
   components: ComponentInfo[];
   groundNode: string;
-  /** grid key → node id, for every connection point of the circuit */
+  /** grid key â†’ node id, for every connection point of the circuit */
   nodeByKey: Map<string, string>;
 }
 
@@ -132,6 +147,10 @@ export interface ComponentInfo {
   thermalCapacitance?: number;
   dynamicThermal?: boolean;
   preset?: string;
+  /** Equivalent series resistance (Î©), for capacitors */
+  esr?: number;
+  /** Parallel leakage resistance (Î©), for capacitors */
+  leakageResistance?: number;
   /** Third node for 3-terminal components (BJT) */
   nodeC?: string;
 }
@@ -145,7 +164,7 @@ const nodeKey = (x: number, y: number): string =>
  * stay on separate nodes. It only matters for the charge / energy display.
  */
 export function isOpenAtDC(type: ComponentType): boolean {
-  return type === 'capacitor';
+  return isCapacitorType(type);
 }
 
 /**
@@ -153,7 +172,7 @@ export function isOpenAtDC(type: ComponentType): boolean {
  *
  * A lamp's value is its watt rating (SYMBOLS.lamp.unit is 'W' and the analyzer
  * compares `power` against it), so its resistance follows from the supply it is
- * rated for: R = V²/P. That is the usual “bulb rated at this voltage”
+ * rated for: R = VÂ²/P. That is the usual â€œbulb rated at this voltageâ€
  * assumption and it makes the brightness readout meaningful: a lamp sitting
  * straight across the supply burns at its rated power.
  *
@@ -296,6 +315,7 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       value: comp.value,
       nodeA,
       nodeB,
+      nodeC,
       voltageSource: isVoltageSource,
       currentSource: isCurrentSource,
       frequency: comp.frequency,
@@ -319,6 +339,8 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       thermalCapacitance: comp.thermalCapacitance,
       dynamicThermal: comp.dynamicThermal,
       preset: comp.preset,
+      esr: comp.esr,
+      leakageResistance: comp.leakageResistance,
       nodeC: (comp.type === 'bjtTransistor') ? nodeC : undefined,
     });
   }
@@ -348,7 +370,7 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
 function solveDC(
   doc: CircuitDoc,
   topology: CircuitTopology,
-  /** sources forced to 0 V — the AC part of a superposition solve */
+  /** sources forced to 0 V â€” the AC part of a superposition solve */
   zeroSourceIds?: Set<string>,
 ): SolverResult {
   const { nodes, components, groundNode } = topology;
@@ -407,6 +429,20 @@ function solveDC(
   const zeners = components.filter((c) => isZenerDiode(c.type));
   const bjts = components.filter((c) => c.type === 'bjtTransistor');
 
+  interface BjtSolverState {
+    params: ReturnType<typeof getBjtParameters>;
+    vbe: number;
+    vbc: number;
+  }
+  const bjtStates = new Map<string, BjtSolverState>();
+  for (const q of bjts) {
+    const docComp = doc.components.find((c) => c.id === q.id) ?? q;
+    const params = getBjtParameters(docComp as never);
+    const sign = params.transistorType === 'npn' ? 1 : -1;
+    // Active-region starting guess; Newton limiting handles the rest.
+    bjtStates.set(q.id, { params, vbe: 0.4 * sign, vbc: -1 * sign });
+  }
+
   const numNodes = nodeList.length;
   const numVoltageSources = voltageSources.length;
   const matrixSize = numNodes + numVoltageSources;
@@ -453,7 +489,7 @@ function solveDC(
   }
 
   let finalSolution: number[] | null = null;
-  const MAX_ITERS = 24;
+  const MAX_ITERS = bjts.length > 0 ? 60 : 24;
 
   for (let iter = 0; iter < MAX_ITERS; iter++) {
     const G = new Array(matrixSize).fill(0).map(() => new Array(matrixSize).fill(0));
@@ -487,7 +523,7 @@ function solveDC(
       const iB = nodeIndex.get(d.nodeB); // Cathode
 
       if (state.conducting) {
-        // Conducts with small series resistance (e.g. 1 Ω) and threshold current offset
+        // Conducts with small series resistance (e.g. 1 Î©) and threshold current offset
         const rOn = 1.0;
         const gOn = 1 / rOn;
         if (iA !== undefined) {
@@ -501,7 +537,7 @@ function solveDC(
           I[iB] -= gOn * state.vDrop;
         }
       } else {
-        // Reverse biased: very high resistance (10 MΩ)
+        // Reverse biased: very high resistance (10 MÎ©)
         const gOff = 1e-7;
         if (iA !== undefined) {
           G[iA][iA] += gOff;
@@ -533,47 +569,40 @@ function solveDC(
       }
     }
 
-    // BJTs — nonlinear 3-terminal device. Compute terminal currents and
-    // derivative conductances from the Ebers-Moll model, stamp into G and I.
-    const prevSol = finalSolution ? finalSolution : new Array(matrixSize).fill(0);
+    // BJTs â€” full 3-terminal Newton linearization. The operating point is
+    // kept in bjtStates so every iteration sees the same junction voltages
+    // that the Jacobian was evaluated at.
     for (const bjt of bjts) {
-      const iBnode = nodeIndex.get(bjt.nodeA); // Base node index
-      const iCnode = nodeIndex.get(bjt.nodeB); // Collector node index
-      const iEnode = nodeIndex.get(bjt.nodeC ?? '');
-      const hasE = iEnode !== undefined;
-      if (iBnode === undefined && iCnode === undefined && !hasE) continue;
+      const st = bjtStates.get(bjt.id)!;
+      const iB = nodeIndex.get(bjt.nodeA);
+      const iC = nodeIndex.get(bjt.nodeB);
+      const iE = nodeIndex.get(bjt.nodeC ?? '');
+      if (iB === undefined && iC === undefined && iE === undefined) continue;
 
-      const params = getBjtParameters(bjt as any);
-      const prevVb = iBnode !== undefined ? prevSol[iBnode] : 0;
-      const prevVc = iCnode !== undefined ? prevSol[iCnode] : 0;
-      const prevVe = hasE ? (prevSol[iEnode] ?? 0) : 0;
-      const vBE = prevVb - prevVe;
-      const vBC = prevVb - prevVc;
-      const vCE = prevVc - prevVe;
-
-      const result = calculateEbersMoll(vBE, vBC, vCE, params, 25);
-
-      const gB = Math.abs(result.gbe) + 1e-9;
-      const gC = Math.abs(result.gbc) + 1e-9;
-      const gEapprox = Math.abs(result.gce) + 1e-9;
-
-      if (iBnode !== undefined) {
-        G[iBnode][iBnode] += gB;
-        if (iCnode !== undefined) G[iBnode][iCnode] -= gB * 0.3;
-        if (hasE && iEnode !== undefined) G[iBnode][iEnode] -= gB * 0.3;
-        I[iBnode] += result.ib;
-      }
-      if (iCnode !== undefined) {
-        G[iCnode][iCnode] += gC;
-        if (iBnode !== undefined) G[iCnode][iBnode] -= gC * 0.3;
-        if (hasE && iEnode !== undefined) G[iCnode][iEnode] -= gC * 0.3;
-        I[iCnode] += result.ic;
-      }
-      if (hasE && iEnode !== undefined) {
-        G[iEnode][iEnode] += gEapprox;
-        if (iBnode !== undefined) G[iEnode][iBnode] -= gEapprox * 0.3;
-        if (iCnode !== undefined) G[iEnode][iCnode] -= gEapprox * 0.3;
-        I[iEnode] += result.ie;
+      // Linearization point anchored at the emitter: vE=0, vB=vbe and
+      // vC=vbe-vbc, so the terminal differences reproduce the stored
+      // operating point exactly. (vB=0 would leave VBE=0 and the model would
+      // stamp no base conductance at all.)
+      const v0 = [st.vbe, st.vbe - st.vbc, 0];
+      const lin = bjtLinearization(
+        st.params,
+        v0[0],
+        v0[1],
+        v0[2],
+        st.params.tAmbient,
+      );
+      const nodes = [iB, iC, iE];
+      const currents = [lin.ib, lin.ic, lin.ie];
+      for (let r = 0; r < 3; r++) {
+        const nr = nodes[r];
+        if (nr === undefined) continue;
+        for (let c = 0; c < 3; c++) {
+          const nc = nodes[c];
+          if (nc !== undefined) G[nr][nc] += lin.jacobian[r][c];
+        }
+        let rhs = -currents[r];
+        for (let c = 0; c < 3; c++) rhs += lin.jacobian[r][c] * v0[c];
+        I[nr] += rhs;
       }
     }
 
@@ -603,9 +632,9 @@ function solveDC(
     if (!sol) break;
     finalSolution = sol;
 
-    if (diodes.length === 0 && zeners.length === 0) break;
+    if (diodes.length === 0 && zeners.length === 0 && bjts.length === 0) break;
 
-    // Check diode state convergence
+    // Check nonlinear device convergence
     let changed = false;
     for (const d of diodes) {
       const state = diodeStates.get(d.id)!;
@@ -635,6 +664,27 @@ function solveDC(
         zState.vd = vd;
         changed = true;
       }
+    }
+
+    for (const q of bjts) {
+      const st = bjtStates.get(q.id)!;
+      const iB = nodeIndex.get(q.nodeA);
+      const iC = nodeIndex.get(q.nodeB);
+      const iE = nodeIndex.get(q.nodeC ?? '');
+      if (iB === undefined && iE === undefined) continue;
+      const vB = iB !== undefined ? sol[iB] : 0;
+      const vC = iC !== undefined ? sol[iC] : 0;
+      const vE = iE !== undefined ? sol[iE] : 0;
+      const nextVbe = limitJunctionStep(st.vbe, vB - vE, 0.15);
+      const nextVbc = limitJunctionStep(st.vbc, vB - vC, 0.15);
+      if (
+        Math.abs(nextVbe - st.vbe) > 1e-9 ||
+        Math.abs(nextVbc - st.vbc) > 1e-9
+      ) {
+        changed = true;
+      }
+      st.vbe = nextVbe;
+      st.vbc = nextVbc;
     }
 
     if (!changed) break;
@@ -709,22 +759,25 @@ function solveDC(
       const vB = nodeVoltages.get(comp.nodeA) ?? 0;
       const vC = nodeVoltages.get(comp.nodeB) ?? 0;
       const vE = nodeVoltages.get(comp.nodeC ?? '') ?? 0;
-      const vBE = vB - vE;
-      const vBC = vB - vC;
-      const vCE = vC - vE;
-      const params = getBjtParameters(comp as any);
-      const result = calculateEbersMoll(vBE, vBC, vCE, params, 25);
-      const vCE_display = vCE;
-      const ic_display = result.ic;
+      const docComp = doc.components.find((c) => c.id === comp.id);
+      const params = getBjtParameters((docComp ?? comp) as never);
+      const lin = bjtLinearization(params, vB, vC, vE, params.tAmbient);
+      // DC operating point â†’ steady-state junction temperature from the
+      // solved dissipation. The transient engine evolves it over time.
+      const tj = params.tAmbient + Math.max(0, lin.power) * params.rth;
+      const bjt = buildBjtSolution(params, lin, tj);
       componentData.set(comp.id, {
-        voltage: vCE_display,
-        current: ic_display,
-        power: Math.abs(vCE_display * ic_display),
-        currentDirection: ic_display >= 0 ? 1 : -1,
-        overload: Math.abs(ic_display) > 0.1,
-        junctionTemp: params.tAmbient + Math.abs(vCE_display * ic_display) * params.rth,
-        thermalWarning: (params.tAmbient + Math.abs(vCE_display * ic_display) * params.rth) > (params.tMax ?? 150) * 0.85,
-        dynamicResistance: Math.abs(ic_display) > 1e-6 ? Math.abs(vCE_display / ic_display) * 0.1 : 1e6,
+        voltage: lin.vce,
+        current: lin.ic,
+        power: lin.power,
+        currentDirection: lin.ic >= 0 ? 1 : -1,
+        terminalCurrents: [lin.ib, lin.ic, lin.ie],
+        bjt,
+        junctionTemp: tj,
+        powerRatio: bjt.powerRatio,
+        thermalWarning:
+          bjt.thermalState === 'high' || bjt.thermalState === 'critical',
+        overload: bjt.overload,
       });
       continue;
     } else {
@@ -734,12 +787,31 @@ function solveDC(
     }
 
     const power = voltage * current;
-    componentData.set(comp.id, {
+    const solution: ComponentSolution = {
       voltage,
       current,
       power,
       currentDirection: current >= 0 ? 1 : -1,
-    });
+    };
+
+    // A capacitor is open at DC, but it still holds whatever charge the
+    // operating point leaves across it, so Q, E and the polarity state are
+    // reported from that voltage.
+    if (isCapacitorType(comp.type)) {
+      const docComp = doc.components.find((c) => c.id === comp.id);
+      const params = getCapacitorParameters(docComp ?? comp);
+      solution.capacitor = buildCapacitorReadout(params, {
+        terminalVoltage: voltage,
+        current: 0,
+        temperature: params.ambientTemp,
+        rmsCurrent: 0,
+        peakCurrent: 0,
+        rippleVoltage: 0,
+        rippleFrequency: null,
+      });
+    }
+
+    componentData.set(comp.id, solution);
   }
 
   const wireCurrents = computeWireCurrents(doc, topology, componentData);
@@ -811,11 +883,11 @@ function computeWireCurrents(
         const sol = compData.get(wire.start.componentId);
         if (sol && comp) {
           const termIdx = wire.start.terminalIndex;
-          const compSol = sol;
-          current =
-            termIdx === 0
-              ? compSol.current * compSol.currentDirection
-              : -compSol.current * compSol.currentDirection;
+          current = sol.terminalCurrents
+            ? (sol.terminalCurrents[termIdx] ?? 0)
+            : termIdx === 0
+              ? sol.current * sol.currentDirection
+              : -sol.current * sol.currentDirection;
           found = true;
         }
       }
@@ -828,8 +900,9 @@ function computeWireCurrents(
         const sol = compData.get(wire.end.componentId);
         if (sol) {
           const termIdx = wire.end.terminalIndex;
-          current =
-            termIdx === 0
+          current = sol.terminalCurrents
+            ? -(sol.terminalCurrents[termIdx] ?? 0)
+            : termIdx === 0
               ? -sol.current * sol.currentDirection
               : sol.current * sol.currentDirection;
           found = true;
@@ -955,7 +1028,7 @@ export function solveLinearSystem(A: number[][], b: number[]): number[] | null {
  * Without an AC supply this is the DC operating point, exactly as before.
  * With one, the answer is the superposition of the DC operating point (AC
  * supplies shorted, capacitors open) and the steady state at each source
- * frequency: RMS values combine as √(Vdc² + Σ|Vac|²) and the average power
+ * frequency: RMS values combine as âˆš(VdcÂ² + Î£|Vac|Â²) and the average power
  * of each part adds, so reactances finally change the reading.
  */
 export function solveCircuit(doc: CircuitDoc): SolverResult {

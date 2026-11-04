@@ -151,34 +151,26 @@ export function ZenerAnalyzer({
   };
 
   return (
-    <div className="zener-analyzer-panel bg-slate-900/90 border border-slate-700/60 rounded-lg p-3 text-xs text-slate-200">
+    <div className="zener-analyzer-panel">
       {/* Header & Controls */}
-      <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-700/50">
-        <div className="flex items-center gap-1.5 font-semibold text-slate-100">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee]"></span>
+      <div className="zan-head">
+        <div className="zan-title">
+          <span className="zan-dot"></span>
           <span>{t('zener.ivCharacteristics') || 'I-V Characteristics Curve'}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="zan-controls">
           {/* Scale toggle */}
-          <div className="flex bg-slate-800 rounded p-0.5 border border-slate-700">
+          <div className="zan-toggle">
             <button
               type="button"
-              className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                scaleMode === 'linear'
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`zan-toggle-btn ${scaleMode === 'linear' ? 'is-on' : ''}`}
               onClick={() => setScaleMode('linear')}
             >
               Linear
             </button>
             <button
               type="button"
-              className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                scaleMode === 'log'
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`zan-toggle-btn ${scaleMode === 'log' ? 'is-on' : ''}`}
               onClick={() => setScaleMode('log')}
             >
               Log |I|
@@ -187,7 +179,7 @@ export function ZenerAnalyzer({
           {/* CSV Export */}
           <button
             type="button"
-            className="px-2 py-0.5 text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded text-slate-200 transition-colors"
+            className="zan-csv-btn"
             onClick={handleExportCSV}
             title={t('zener.exportCsv') || 'Export curve data as CSV'}
           >
@@ -197,7 +189,7 @@ export function ZenerAnalyzer({
       </div>
 
       {/* SVG Plot */}
-      <div className="relative flex justify-center overflow-hidden">
+      <div className="zan-plot">
         <svg
           width={width}
           height={height}
@@ -451,31 +443,31 @@ export function ZenerAnalyzer({
         {/* Hover Readout Box */}
         {hoverPoint && (
           <div
-            className="absolute pointer-events-none bg-slate-950/95 border border-cyan-500/50 rounded px-2 py-1 text-[10px] text-cyan-200 shadow-lg z-10"
+            className="zan-tooltip"
             style={{
               left: Math.min(width - 110, Math.max(10, hoverPoint.x - 40)),
               top: Math.max(5, hoverPoint.y - 36),
             }}
           >
-            <div>V: <span className="font-mono font-bold text-white">{hoverPoint.v.toFixed(3)} V</span></div>
-            <div>I: <span className="font-mono font-bold text-white">{(hoverPoint.i * 1000).toFixed(2)} mA</span></div>
+            <div>V: <span className="zan-tooltip-val">{hoverPoint.v.toFixed(3)} V</span></div>
+            <div>I: <span className="zan-tooltip-val">{(hoverPoint.i * 1000).toFixed(2)} mA</span></div>
           </div>
         )}
       </div>
 
       {/* Footer Details: Dynamic Resistance & Tangent Legend */}
-      <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-800 text-[10px] text-slate-400">
+      <div className="zan-foot">
         <div>
           <span>rz = </span>
-          <span className="font-mono text-cyan-300 font-semibold">{params.rz || 10} Ω</span>
-          <span className="ml-2">Izt = </span>
-          <span className="font-mono text-slate-300">{((params.izt || 0.02) * 1000).toFixed(0)} mA</span>
+          <span className="zan-foot-val">{params.rz || 10} Ω</span>
+          <span className="zan-foot-gap">Izt = </span>
+          <span className="zan-foot-muted">{((params.izt || 0.02) * 1000).toFixed(0)} mA</span>
         </div>
         {currentOperatingPoint && (
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-0.5 bg-amber-400"></span>
+          <div className="zan-foot-tangent">
+            <span className="zan-foot-swatch" />
             <span>rz tangent: </span>
-            <span className="font-mono text-amber-300">
+            <span className="zan-foot-warn">
               {(currentOperatingPoint.dynamicResistance ?? params.rz ?? 10).toFixed(1)} Ω
             </span>
           </div>
