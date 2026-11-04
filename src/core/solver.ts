@@ -341,7 +341,6 @@ export function buildTopology(doc: CircuitDoc): CircuitTopology {
       preset: comp.preset,
       esr: comp.esr,
       leakageResistance: comp.leakageResistance,
-      nodeC: (comp.type === 'bjtTransistor') ? nodeC : undefined,
     });
   }
 
