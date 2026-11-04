@@ -3,28 +3,45 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # Documentation-only changes cannot affect the build — don't burn a
+    # (rate-limited, occasionally flaky) Pages deployment for them.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
   workflow_dispatch:
 
+# Least privilege: the workflow can only read the repo. The write/OIDC
+# permissions GitHub Pages needs are granted to the deploy job alone.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Serialize deployments per ref: rapid pushes to main skip superseded
+# queued runs, and PR validation gets its own group so it never queues
+# behind a Pages deployment. Do NOT cancel in-progress runs — a killed
+# Pages deployment can leave the CDN half-updated.
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Bound the whole job (incl. artifact upload) instead of the 6-hour default.
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -39,14 +56,23 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Upload artifact
+      - name: Upload Pages artifact
+        # Pull requests validate the build but never upload or deploy.
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # deploy-pages polls the Pages service; if it hangs, fail the job
+    # after 15 minutes instead of stalling the run for hours.
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
