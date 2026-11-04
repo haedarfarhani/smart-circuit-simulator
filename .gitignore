@@ -6,3 +6,6 @@ dist-ssr
 coverage
 test-results
 playwright-report
+
+# ZCode session artifacts
+.zcode/
