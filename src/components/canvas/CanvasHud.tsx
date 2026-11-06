@@ -203,14 +203,16 @@ export function CanvasHud() {
           <button
             type="button"
             className="hud-btn hud-probe-btn hud-scope-btn"
-            data-active={ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope'}
-            aria-pressed={ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope'}
+            data-active={ui.scopeFloatingOpen}
+            aria-pressed={ui.scopeFloatingOpen}
             title={t('features.oscilloscope')}
             aria-label={t('features.oscilloscope')}
             onClick={() => {
-              const open = ui.bottomPanelOpen && ui.bottomPanelTab === 'oscilloscope';
-              ui.setBottomPanelTab('oscilloscope');
-              ui.setBottomPanelOpen(!open);
+              if (ui.scopeFloatingOpen && ui.scopeFloatingMinimized) {
+                ui.setScopeFloatingMinimized(false);
+              } else {
+                ui.setScopeFloatingOpen(!ui.scopeFloatingOpen);
+              }
             }}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">

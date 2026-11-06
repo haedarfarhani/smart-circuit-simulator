@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { DEFAULT_BOTTOM_PANEL_HEIGHT, useUiStore } from '../../store/uiStore';
 import { makeT } from '../../i18n';
-import { Oscilloscope } from '../panels/Oscilloscope';
 import { AnalyzerPanel } from '../panels/AnalyzerPanel';
 import { SimulationControls } from '../panels/SimulationControls';
 import { MeasurementsPanel } from '../panels/MeasurementsPanel';
@@ -106,7 +105,29 @@ export function BottomPanel() {
         </button>
       </div>
       <div className="bottom-panel-content">
-        {tab === 'oscilloscope' && <Oscilloscope />}
+        {tab === 'oscilloscope' && (
+          <div className="bottom-scope-dock-card">
+            <div className="bottom-scope-dock-info">
+              <span className="bottom-scope-glyph">∿</span>
+              <div>
+                <h4>{t('tab.oscilloscope') || 'Digital Storage Oscilloscope'}</h4>
+                <p>The Oscilloscope operates as a floating digital lab instrument on your canvas.</p>
+              </div>
+            </div>
+            <div className="bottom-scope-dock-actions">
+              <button
+                type="button"
+                className="scope-cta scope-cta-primary"
+                onClick={() => {
+                  useUiStore.getState().setScopeFloatingOpen(true);
+                  useUiStore.getState().setScopeFloatingMinimized(false);
+                }}
+              >
+                ⤢ {t('features.oscilloscope') || 'Open Floating Oscilloscope'}
+              </button>
+            </div>
+          </div>
+        )}
         {tab === 'simulation' && (
           <>
             <SimulationControls />

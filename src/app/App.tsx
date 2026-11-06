@@ -13,6 +13,7 @@ import { AboutDialog } from '../components/dialogs/AboutDialog';
 import { TransferDialog } from '../components/dialogs/TransferDialog';
 import { SettingsDialog } from '../components/dialogs/SettingsDialog';
 import { ConfirmNewDialog } from '../components/dialogs/ConfirmNewDialog';
+import { FloatingOscilloscope } from '../components/panels/FloatingOscilloscope';
 import { useCircuitStore, persistDoc } from '../store/circuitStore';
 import { applyLocale, applyTheme, useUiStore } from '../store/uiStore';
 import { useKeyboardShortcuts } from '../hooks/useKeyboard';
@@ -81,6 +82,7 @@ export function App() {
           <CircuitCanvas />
           <ColorLegend />
           <BottomPanel />
+          <FloatingOscilloscope />
         </div>
         <Inspector />
       </div>

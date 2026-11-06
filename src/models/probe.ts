@@ -352,10 +352,10 @@ export function findTriggerTime(
   for (let i = samples.length - 1; i > 0; i--) {
     const prev = samples[i - 1].value;
     const cur = samples[i].value;
-    if (edge === 'rising' && prev < level && cur >= level) {
+    if (edge === 'rising' && ((prev <= level && cur > level) || (prev < level && cur >= level))) {
       return samples[i].t;
     }
-    if (edge === 'falling' && prev > level && cur <= level) {
+    if (edge === 'falling' && ((prev >= level && cur < level) || (prev > level && cur <= level))) {
       return samples[i].t;
     }
   }

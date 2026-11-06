@@ -1432,9 +1432,22 @@ button {
   cursor: grabbing;
 }
 
-/* probe placement: precision crosshair while a probe is being placed */
-.canvas-svg[data-placing='true'] {
-  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Cg stroke='%230f172a' stroke-width='3.2' stroke-linecap='round' fill='none'%3E%3Cpath d='M11 2v5M11 15v5M2 11h5M15 11h5'/%3E%3C/g%3E%3Cg stroke='%2338bdf8' stroke-width='1.6' stroke-linecap='round' fill='none'%3E%3Cpath d='M11 2v5M11 15v5M2 11h5M15 11h5'/%3E%3C/g%3E%3Ccircle cx='11' cy='11' r='1.7' fill='%2338bdf8' stroke='%230f172a' stroke-width='0.8'/%3E%3C/svg%3E") 11 11, crosshair;
+/* probe placement: custom probe cursor while a probe is being placed */
+.canvas-svg[data-placing='true'],
+.canvas-svg[data-placing='true'] * {
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpolygon points='0,0 9,3 3,9' fill='%2338bdf8' stroke='%23020617' stroke-width='1.2'/%3E%3Cline x1='1' y1='1' x2='9' y2='9' stroke='%23ffffff' stroke-width='3.2' stroke-linecap='round'/%3E%3Cline x1='1' y1='1' x2='9' y2='9' stroke='%2338bdf8' stroke-width='1.8' stroke-linecap='round'/%3E%3Cline x1='8' y1='8' x2='18' y2='18' stroke='%23020617' stroke-width='6.5' stroke-linecap='round'/%3E%3Cline x1='8' y1='8' x2='18' y2='18' stroke='%2338bdf8' stroke-width='3.6' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='26' y2='26' stroke='%23334155' stroke-width='8' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='26' y2='26' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='9' r='7.5' fill='%23020617' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='23' y='12.5' font-family='sans-serif' font-size='9.5' font-weight='900' fill='%2338bdf8' text-anchor='middle' dominant-baseline='central'%3E+V%3C/text%3E%3C/svg%3E") 1 1, crosshair !important;
+}
+
+/* Voltage Step 2: Negative Reference probe (−) */
+.canvas-svg[data-placing-mode='voltage'][data-placing-step='2'],
+.canvas-svg[data-placing-mode='voltage'][data-placing-step='2'] * {
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpolygon points='0,0 9,3 3,9' fill='%23f43f5e' stroke='%23020617' stroke-width='1.2'/%3E%3Cline x1='1' y1='1' x2='9' y2='9' stroke='%23ffffff' stroke-width='3.2' stroke-linecap='round'/%3E%3Cline x1='1' y1='1' x2='9' y2='9' stroke='%23f43f5e' stroke-width='1.8' stroke-linecap='round'/%3E%3Cline x1='8' y1='8' x2='18' y2='18' stroke='%23020617' stroke-width='6.5' stroke-linecap='round'/%3E%3Cline x1='8' y1='8' x2='18' y2='18' stroke='%23f43f5e' stroke-width='3.6' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='26' y2='26' stroke='%23334155' stroke-width='8' stroke-linecap='round'/%3E%3Cline x1='16' y1='16' x2='26' y2='26' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='9' r='7.5' fill='%23020617' stroke='%23f43f5e' stroke-width='2'/%3E%3Ctext x='23' y='12.5' font-family='sans-serif' font-size='9.5' font-weight='900' fill='%23f43f5e' text-anchor='middle' dominant-baseline='central'%3E-V%3C/text%3E%3C/svg%3E") 1 1, crosshair !important;
+}
+
+/* Current Probe: Current Clamp Meter (A) */
+.canvas-svg[data-placing-mode='current'],
+.canvas-svg[data-placing-mode='current'] * {
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='3' cy='3' r='2.5' fill='%2322c55e' stroke='%23ffffff' stroke-width='1.2'/%3E%3Cpath d='M5 5 C 5 0, 19 0, 19 6 C 19 12, 11 12, 11 18' fill='none' stroke='%23020617' stroke-width='5.5' stroke-linecap='round'/%3E%3Cpath d='M5 5 C 5 0, 19 0, 19 6 C 19 12, 11 12, 11 18' fill='none' stroke='%2322c55e' stroke-width='3' stroke-linecap='round'/%3E%3Cline x1='11' y1='18' x2='11' y2='27' stroke='%230f172a' stroke-width='7' stroke-linecap='round'/%3E%3Cline x1='11' y1='18' x2='11' y2='27' stroke='%23475569' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='23' r='7.5' fill='%23020617' stroke='%2322c55e' stroke-width='2'/%3E%3Ctext x='23' y='23' font-family='sans-serif' font-size='10' font-weight='900' fill='%2322c55e' text-anchor='middle' dominant-baseline='central'%3EA%3C/text%3E%3C/svg%3E") 3 3, crosshair !important;
 }
 
 .sym-line {
@@ -5004,28 +5017,42 @@ kbd {
 .scope-redesign .scope-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 6px 12px;
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 5;
+  scrollbar-width: none;
+}
+
+.scope-redesign .scope-toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .scope-toolbar-group {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.scope-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .scope-group-caption {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.7px;
+  letter-spacing: 0.6px;
   color: var(--text-faint);
 }
 
@@ -5807,6 +5834,176 @@ kbd {
   background: var(--accent-soft);
 }
 
+.scope-card-empty-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.scope-card-empty-row.compact {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.scope-card-empty-row.compact .scope-card-add-btn {
+  min-height: 28px;
+  padding: 4px 6px;
+  font-size: 10.5px;
+  flex: 1;
+}
+
+.scope-card-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--panel-3);
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  min-height: 36px;
+  transition: all var(--dur) var(--ease);
+}
+
+.scope-card-add-btn:hover {
+  transform: translateY(-1px);
+}
+
+.scope-card-add-btn.is-v {
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+}
+
+.scope-card-add-btn.is-v:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.scope-card-add-btn.is-a {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+
+.scope-card-add-btn.is-a:hover {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+  color: #22c55e;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.25);
+}
+
+/* ----- mobile cursor selector pills ----- */
+.scope-cursor-pills {
+  position: absolute;
+  top: 38px;
+  inset-inline-end: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 4;
+}
+
+.scope-trig-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.scope-trig-chip.is-trig {
+  background: rgba(34, 197, 94, 0.22);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.3);
+}
+
+.scope-trig-chip.is-auto {
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.scope-trig-chip.is-wait {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.scope-cursor-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(6, 12, 20, 0.88);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all var(--dur) var(--ease);
+}
+
+.scope-cursor-pill:hover {
+  color: var(--text);
+  border-color: var(--border-glow);
+}
+
+.scope-cursor-pill.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.scope-cursor-pill.is-clear {
+  padding: 3px 8px;
+  color: var(--text-faint);
+}
+
+.scope-cursor-pill.is-clear:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* ----- sidebar measurements tab ----- */
+.scope-side-tab-measurements {
+  display: none;
+}
+
+.scope-side-measurements {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scope-side-empty-stats {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
 .scope-side-hint {
   font-size: 10.5px;
   line-height: 1.6;
@@ -5877,24 +6074,42 @@ kbd {
   font-weight: 600;
 }
 
-/* ----- responsive ----- */
-@media (max-width: 980px) {
+/* ----- responsive oscilloscope breakpoints ----- */
+@media (max-width: 1023px) {
   .scope-redesign .scope-body {
     grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
   }
 
   .scope-redesign .scope-display {
-    min-height: 260px;
+    min-height: 240px;
+    height: 300px;
+    flex-shrink: 0;
   }
 
   .scope-side {
     border-inline-start: none;
     border-top: 1px solid var(--border);
+    flex: 1;
+    min-height: 260px;
+    overflow-y: visible;
   }
 
-  .scope-channel-list {
-    max-height: 260px;
+  .scope-side-tabs {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .scope-side-tab-measurements {
+    display: block;
+  }
+
+  .scope-channel-list,
+  .scope-trigger-card,
+  .scope-side-measurements {
+    max-height: none;
+    overflow-y: visible;
   }
 
   .scope-tool-label {
@@ -5905,6 +6120,648 @@ kbd {
   .scope-run-btn {
     padding: 6px 9px;
   }
+}
+
+@media (max-width: 639px) {
+  .scope-toolbar {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .scope-toolbar-group {
+    gap: 4px;
+  }
+
+  .scope-run-btn,
+  .scope-tool-btn {
+    min-height: 40px;
+    font-size: 12.5px;
+  }
+
+  .scope-stepper {
+    min-height: 38px;
+  }
+
+  .scope-step-btn {
+    width: 32px;
+    font-size: 16px;
+  }
+
+  .scope-step-value {
+    max-width: 88px;
+    font-size: 11px;
+    padding: 4px 6px;
+  }
+
+  .scope-group-caption {
+    display: none;
+  }
+
+  .scope-redesign .scope-display {
+    min-height: 210px;
+    height: 250px;
+  }
+
+  .scope-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .scope-stat-card {
+    padding: 6px 8px;
+  }
+
+  .scope-card-top {
+    gap: 6px;
+  }
+
+  .scope-switch {
+    width: 42px;
+    height: 24px;
+  }
+
+  .scope-switch-knob {
+    width: 18px;
+    height: 18px;
+    top: 2px;
+  }
+
+  .scope-switch[data-on='true'] .scope-switch-knob {
+    transform: translateX(18px);
+  }
+
+  [dir='rtl'] .scope-switch[data-on='true'] .scope-switch-knob {
+    transform: translateX(-18px);
+  }
+
+  .scope-card-actions button {
+    min-height: 40px;
+    font-size: 11.5px;
+  }
+
+  .scope-source-row {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+
+  .scope-source-btn {
+    min-height: 40px;
+    font-size: 11px;
+  }
+
+  .scope-segmented button {
+    min-height: 38px;
+    font-size: 11px;
+  }
+}
+
+/* Small mobile devices (≤380px) */
+@media (max-width: 380px) {
+  .scope-toolbar-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .scope-stepper {
+    flex: 1;
+  }
+
+  .scope-step-value {
+    flex: 1;
+    max-width: none;
+  }
+}
+
+/* Landscape mobile optimization */
+@media (max-height: 480px) and (orientation: landscape) {
+  .scope-redesign .scope-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, 1fr);
+    flex-direction: row;
+    overflow: hidden;
+  }
+
+  .scope-redesign .scope-display {
+    height: 100%;
+    min-height: 180px;
+  }
+
+  .scope-side {
+    border-inline-start: 1px solid var(--border);
+    border-top: none;
+    overflow-y: auto;
+  }
+}
+
+/* ================================================================
+   FLOATING DIGITAL STORAGE OSCILLOSCOPE (DSO-4040 LAB PRO)
+   ================================================================ */
+
+.floating-scope-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  width: min(940px, calc(100vw - 32px));
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #181e2b 0%, #0e121a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 32px rgba(56, 189, 248, 0.08);
+  overflow: hidden;
+  font-family: var(--font-ui);
+  user-select: none;
+  animation: scopeFloatIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scopeFloatIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.floating-scope-window.is-fullscreen {
+  position: absolute;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  transform: none !important;
+  border-radius: 0 !important;
+  border: none !important;
+  z-index: 70;
+}
+
+.floating-scope-window.is-compact {
+  inset-inline: 8px;
+  width: auto;
+  top: 12px;
+  bottom: 12px;
+  max-height: calc(100% - 24px);
+  transform: none !important;
+}
+
+/* ----- Instrument Chassis Title Bar / Drag Handle ----- */
+.scope-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: linear-gradient(180deg, #222a3a 0%, #171d28 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.scope-window-header:active {
+  cursor: grabbing;
+}
+
+.scope-window-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.scope-hardware-led-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-hw-led {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #334155;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: all 0.2s ease;
+}
+
+.scope-hw-led.led-power.is-active {
+  background: #10b981;
+  box-shadow: 0 0 10px #10b981, inset 0 1px 1px #86efac;
+}
+
+.scope-hw-led.led-trig.is-active {
+  background: #f59e0b;
+  box-shadow: 0 0 10px #f59e0b, inset 0 1px 1px #fde68a;
+  animation: pulse 1.5s infinite;
+}
+
+.scope-brand-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.scope-brand-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-sine-glyph {
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.scope-brand-sub {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.scope-window-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.scope-window-ctrl {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  width: 28px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+
+.scope-window-ctrl:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.scope-window-ctrl.ctrl-close:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.scope-window-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ----- Minimized Floating Widget ----- */
+.scope-mini-widget {
+  position: absolute;
+  bottom: 24px;
+  inset-inline-end: 24px;
+  z-index: 62;
+  display: flex;
+  align-items: center;
+  background: color-mix(in srgb, var(--panel-2) 94%, black);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6), 0 0 16px var(--accent-glow);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  animation: probeBannerIn 0.2s ease-out;
+}
+
+.scope-mini-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.scope-mini-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.scope-mini-led.is-live {
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+  animation: pulse 1.4s infinite;
+}
+
+.scope-mini-title {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.scope-mini-info {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.scope-mini-expand {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-inline-start: 4px;
+}
+
+.scope-mini-close {
+  background: none;
+  border: none;
+  border-inline-start: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 15px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+
+.scope-mini-close:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ----- Reticle Zero Ground Flags & Trigger Level Markers ----- */
+.scope-ground-indicators {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: 2px;
+  width: 20px;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.scope-ground-tag {
+  position: absolute;
+  transform: translateY(-50%);
+  inset-inline-start: 0;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0 6px currentColor;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+}
+
+.scope-ground-tag span {
+  font-size: 9px;
+  background: rgba(4, 8, 14, 0.85);
+  border-radius: 2px;
+  padding: 1px 3px;
+  margin-inline-end: 1px;
+  border: 1px solid currentColor;
+}
+
+.scope-trigger-tag {
+  position: absolute;
+  transform: translateY(-50%);
+  inset-inline-end: 2px;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0 6px currentColor;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+  z-index: 4;
+}
+
+.scope-trigger-tag span {
+  font-size: 9px;
+  background: rgba(4, 8, 14, 0.85);
+  border-radius: 2px;
+  padding: 1px 3px;
+  margin-inline-start: 1px;
+  border: 1px solid currentColor;
+}
+
+.scope-trig-time-marker {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: #f59e0b;
+  text-shadow: 0 0 6px #f59e0b;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* ----- BNC Input Bar (Instrument Front-Panel Base) ----- */
+.scope-bnc-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: linear-gradient(180deg, #121822 0%, #090c12 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  gap: 16px;
+  overflow-x: auto;
+}
+
+.scope-bnc-cluster {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.scope-bnc-caption {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.scope-bnc-ports {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scope-bnc-jack {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+
+.scope-bnc-jack:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--ch-color);
+  transform: translateY(-1px);
+}
+
+.scope-bnc-jack.is-selected {
+  border-color: var(--ch-color);
+  box-shadow: 0 0 0 1px var(--ch-color), 0 0 10px color-mix(in srgb, var(--ch-color) 30%, transparent);
+}
+
+.scope-bnc-socket {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #0a0e14 30%, #2a3444 80%, #1e2634 100%);
+  border: 2px solid #64748b;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+.scope-bnc-outer-ring {
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.scope-bnc-inner-pin {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fbbf24;
+  box-shadow: 0 0 3px #fbbf24;
+}
+
+.scope-bnc-led-halo {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.scope-bnc-jack.is-connected .scope-bnc-led-halo {
+  border-color: var(--ch-color);
+  box-shadow: 0 0 8px var(--ch-color);
+}
+
+.scope-bnc-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.scope-bnc-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ch-color);
+}
+
+.scope-bnc-val {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.scope-bnc-calib {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.scope-calib-socket {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid #64748b;
+  background: #0f172a;
+  display: grid;
+  place-items: center;
+}
+
+.scope-calib-pin {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #e2e8f0;
+}
+
+/* ----- Bottom Panel Floating Card Prompt ----- */
+.bottom-scope-dock-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(15, 23, 42, 0.4) 100%);
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  margin: 12px;
+}
+
+.bottom-scope-dock-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.bottom-scope-glyph {
+  font-size: 24px;
+  color: var(--accent);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--border-glow);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.bottom-scope-dock-info h4 {
+  margin: 0 0 3px;
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.bottom-scope-dock-info p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* ================================================================

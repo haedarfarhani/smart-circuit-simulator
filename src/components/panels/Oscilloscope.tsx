@@ -35,11 +35,11 @@ import { makeT } from '../../i18n';
 const GRID_X = 10;
 const GRID_Y = 8;
 
-function formatTime(seconds: number): string {
+export function formatTime(seconds: number): string {
   return formatValue(seconds, 's');
 }
 
-function formatMag(value: number, unit: string): string {
+export function formatMag(value: number, unit: string): string {
   return formatValue(value, unit);
 }
 
@@ -119,9 +119,41 @@ function computeWindow(
       : 0;
   const trigBuf = channelSamples[trigger.source] ?? [];
   let tTrig = findTriggerTime(trigBuf, trigger.level, trigger.edge as 'rising' | 'falling');
-  if (tTrig == null) tTrig = trigger.mode === 'auto' ? latestT : null;
-  const windowEnd = tTrig != null ? tTrig + 8 * timeDiv : latestT;
-  const windowStart = windowEnd - GRID_X * timeDiv;
+
+  // If manual level didn't trigger in auto mode, attempt midpoint edge detection
+  if (tTrig == null && trigger.mode === 'auto' && trigBuf.length >= 2) {
+    const recent = trigBuf.slice(-1000);
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (const s of recent) {
+      if (s.value < minV) minV = s.value;
+      if (s.value > maxV) maxV = s.value;
+    }
+    if (maxV - minV > 1e-6) {
+      const mid = (minV + maxV) / 2;
+      tTrig = findTriggerTime(recent, mid, trigger.edge as 'rising' | 'falling');
+    }
+  }
+
+  const span = GRID_X * timeDiv;
+  let windowStart = 0;
+  let windowEnd = span;
+
+  if (tTrig != null) {
+    // Lock trigger point at 2 divisions (20%) across screen
+    windowStart = Math.max(0, tTrig - 2 * timeDiv);
+    windowEnd = windowStart + span;
+  } else {
+    // Untriggered / rolling:
+    if (latestT <= span) {
+      windowStart = 0;
+      windowEnd = span;
+    } else {
+      windowEnd = latestT;
+      windowStart = Math.max(0, windowEnd - span);
+    }
+  }
+
   return { latestT, tTrig, windowStart, windowEnd };
 }
 
@@ -162,8 +194,9 @@ export function Oscilloscope() {
   const [hoverXPct, setHoverXPct] = useState<number>(0);
   const [cursorA, setCursorA] = useState<number | null>(null);
   const [cursorB, setCursorB] = useState<number | null>(null);
+  const [activeCursor, setActiveCursor] = useState<'A' | 'B'>('A');
   const [showStats, setShowStats] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<'channels' | 'trigger'>('channels');
+  const [sidebarTab, setSidebarTab] = useState<'channels' | 'trigger' | 'measurements'>('channels');
   const [canvasPx, setCanvasPx] = useState({ w: 0, h: 0 });
 
   const liveRef = useRef({ hoverT, cursorA, cursorB });
@@ -554,9 +587,10 @@ export function Oscilloscope() {
       if (trigCh && scale) {
         const zero = rect.height / 2 - trigCh.position * (rect.height / GRID_Y);
         const yTrig = zero - (trigger.level / scale) * (rect.height / GRID_Y);
-        if (Math.abs(e.clientY - rect.top - yTrig) < 12) {
+        const hitDistance = e.pointerType === 'touch' ? 28 : 14;
+        if (Math.abs(e.clientY - rect.top - yTrig) < hitDistance) {
           dragTrig.current = true;
-          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
           e.preventDefault();
           return;
         }
@@ -593,9 +627,16 @@ export function Oscilloscope() {
 
   const onCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (dragTrig.current) return;
-    if (hoverT == null) return;
-    if (e.shiftKey) setCursorB(hoverT);
-    else setCursorA(hoverT);
+    const pos = windowFromClientX(e.clientX);
+    const tVal = pos ? pos.t : hoverT;
+    if (tVal == null) return;
+    if (e.shiftKey || activeCursor === 'B') {
+      setCursorB(tVal);
+      if (!e.shiftKey && cursorA == null) setActiveCursor('A');
+    } else {
+      setCursorA(tVal);
+      if (cursorB == null) setActiveCursor('B');
+    }
   };
 
   // wheel: zoom the time base (no page scroll hijack — panel-local)
@@ -671,8 +712,28 @@ export function Oscilloscope() {
   };
 
   const autoFit = () => {
-    // reset vertical scales to auto + fit time window to the buffer span
+    // 1. Reset vertical scales to auto + position to 0
     for (const ch of enabledChannels) updateChannel(ch.id, { scale: 0, position: 0 });
+
+    // 2. Auto-set trigger level to 50% midpoint of trigger source
+    const trigSt = stats.get(trigger.source);
+    if (trigSt && trigSt.pp > 1e-6) {
+      setTrigger({ level: Math.round(((trigSt.max + trigSt.min) / 2) * 1000) / 1000 });
+    }
+
+    // 3. Timebase auto-fit: prefer displaying 3-4 cycles of detected periodic frequency
+    const trigFreq = trigSt?.frequency;
+    if (trigFreq && trigFreq > 0) {
+      const idealTimeDiv = (3 / trigFreq) / GRID_X;
+      let best = TIME_DIV_OPTIONS[0];
+      for (const o of TIME_DIV_OPTIONS) {
+        if (Math.abs(o - idealTimeDiv) < Math.abs(best - idealTimeDiv)) best = o;
+      }
+      setTimeDiv(best);
+      return;
+    }
+
+    // Fallback: fit to active buffer span
     let span = 0;
     for (const ch of enabledChannels) {
       const buf = channelSamples[ch.id];
@@ -694,6 +755,7 @@ export function Oscilloscope() {
     <div className="oscilloscope-panel scope-pro scope-redesign">
       {/* ===== toolbar ===== */}
       <div className="scope-toolbar">
+        {/* Group 1: Acquisition & Data Export (RUN/STOP, Reset, Clear, CSV) */}
         <div className="scope-toolbar-group">
           <button
             className={`scope-run-btn ${isRunning ? 'is-running' : ''}`}
@@ -702,18 +764,18 @@ export function Oscilloscope() {
               if (isRunning) s.pause();
               else s.start();
             }}
-            title={isRunning ? t('sim.pause') : t('sim.run')}
+            title={isRunning ? t('sim.pause') || 'Pause' : t('sim.run') || 'Run'}
           >
             <span className="scope-run-dot" />
-            {isRunning ? `⏸ ${t('sim.pause') || 'Pause'}` : `▶ ${t('sim.run') || 'Run'}`}
+            {isRunning ? (t('sim.pause') || 'Pause') : (t('sim.run') || 'Run')}
           </button>
           <button
             className="scope-tool-btn"
             onClick={() => useSimulationStore.getState().reset()}
-            title={t('sim.reset')}
+            title={t('sim.reset') || 'Reset'}
             aria-label={t('sim.reset') || 'Reset'}
           >
-            ↺ <span className="scope-tool-label">{t('sim.reset') || 'Reset'}</span>
+            ↺
           </button>
           <button
             className="scope-tool-btn"
@@ -725,30 +787,22 @@ export function Oscilloscope() {
             title={t('osc.clear') || 'Clear'}
             aria-label={t('osc.clear') || 'Clear'}
           >
-            ✕ <span className="scope-tool-label">{t('osc.clear') || 'Clear'}</span>
+            ✕
           </button>
           <button
-            className="scope-tool-btn"
+            className="scope-tool-btn scope-btn-csv"
             onClick={exportCsv}
             title={t('scope.export') || 'Export CSV'}
             aria-label={t('scope.export') || 'Export CSV'}
           >
-            ⇓ <span className="scope-tool-label">{t('scope.export') || 'Export CSV'}</span>
-          </button>
-          <button
-            className={`scope-tool-btn ${scopeFullscreen ? 'is-on' : ''}`}
-            onClick={() => useUiStore.getState().setScopeFullscreen(!scopeFullscreen)}
-            title={t('scope.fullscreen') || 'Fullscreen'}
-            aria-label={t('scope.fullscreen') || 'Fullscreen'}
-            aria-pressed={scopeFullscreen}
-          >
-            {scopeFullscreen ? '⤡' : '⤢'}{' '}
-            <span className="scope-tool-label">{t('scope.fullscreen') || 'Fullscreen'}</span>
+            ⇓ <span className="scope-tool-label">CSV</span>
           </button>
         </div>
 
+        <div className="scope-toolbar-divider" />
+
+        {/* Group 2: Horizontal Timebase */}
         <div className="scope-toolbar-group scope-timebase">
-          <span className="scope-group-caption">{t('osc.timeBase') || 'Time'}</span>
           <div className="scope-stepper">
             <button
               className="scope-step-btn"
@@ -782,30 +836,39 @@ export function Oscilloscope() {
             </button>
           </div>
           <button
-            className="scope-tool-btn"
+            className="scope-tool-btn scope-btn-autofit"
             onClick={autoFit}
             title={t('osc.autoScale') || 'Auto fit'}
             aria-label={t('osc.autoScale') || 'Auto fit'}
           >
-            ⤢ <span className="scope-tool-label">{t('osc.autoScale') || 'Fit'}</span>
+            ⤢ <span className="scope-tool-label">{t('osc.autoScale') || 'Auto'}</span>
           </button>
         </div>
 
+        <div className="scope-toolbar-divider" />
+
+        {/* Group 3: Probes Quick Attach */}
         <div className="scope-toolbar-group">
           <button
             className="scope-tool-btn scope-add-v"
             onClick={() => startPlacement('voltage')}
-            title={t('probe.voltageProbe') || 'Voltage probe'}
+            title={t('probe.voltageProbe') || 'Voltage probe (+V)'}
           >
-            ＋V <span className="scope-tool-label">{t('probe.voltageProbe') || 'Voltage'}</span>
+            ＋V <span className="scope-tool-label">Volt</span>
           </button>
           <button
             className="scope-tool-btn scope-add-a"
             onClick={() => startPlacement('current')}
-            title={t('probe.currentProbe') || 'Current probe'}
+            title={t('probe.currentProbe') || 'Current probe (+A)'}
           >
-            ＋A <span className="scope-tool-label">{t('probe.currentProbe') || 'Current'}</span>
+            ＋A <span className="scope-tool-label">Curr</span>
           </button>
+        </div>
+
+        <div className="scope-toolbar-divider" />
+
+        {/* Group 4: Analysis & Measurements */}
+        <div className="scope-toolbar-group">
           <button
             className={`scope-tool-btn ${showStats ? 'is-on' : ''}`}
             onClick={() => setShowStats((v) => !v)}
@@ -813,20 +876,32 @@ export function Oscilloscope() {
             aria-label={t('osc.stats') || 'Measurements'}
             aria-pressed={showStats}
           >
-            ƒx
+            ƒx <span className="scope-tool-label">{t('osc.stats') || 'Stats'}</span>
           </button>
-          {(cursorA != null || cursorB != null) && (
-            <button
-              className="scope-tool-btn"
-              onClick={() => {
+          <button
+            className={`scope-tool-btn ${cursorA != null || cursorB != null ? 'is-on' : ''}`}
+            onClick={() => {
+              if (cursorA != null || cursorB != null) {
                 setCursorA(null);
                 setCursorB(null);
-              }}
-              title={t('osc.clearCursors') || 'Clear cursors'}
-            >
-              ⌖✕
-            </button>
-          )}
+              } else {
+                setActiveCursor('A');
+              }
+            }}
+            title={t('osc.cursors') || 'Cursors'}
+            aria-label="Cursors"
+          >
+            ⌖ <span className="scope-tool-label">{t('osc.cursors') || 'Cursors'}</span>
+          </button>
+          <button
+            className={`scope-tool-btn ${scopeFullscreen ? 'is-on' : ''}`}
+            onClick={() => useUiStore.getState().setScopeFullscreen(!scopeFullscreen)}
+            title={t('scope.fullscreen') || 'Fullscreen'}
+            aria-label={t('scope.fullscreen') || 'Fullscreen'}
+            aria-pressed={scopeFullscreen}
+          >
+            {scopeFullscreen ? '⤡' : '⤢'}
+          </button>
         </div>
       </div>
 
@@ -836,6 +911,7 @@ export function Oscilloscope() {
           <div
             className="osc-display-container scope-display"
             ref={containerRef}
+            style={{ touchAction: 'none' }}
             onPointerMove={onPointerMove}
             onPointerLeave={() => setHoverT(null)}
             onPointerDown={onPointerDown}
@@ -851,6 +927,96 @@ export function Oscilloscope() {
               <canvas ref={canvasRef} className="osc-canvas" />
             </div>
 
+            {/* Real oscilloscope left-bezel ground reference markers */}
+            <div className="scope-ground-indicators" aria-hidden="true">
+              {enabledChannels.map((ch) => {
+                const yPct = Math.max(3, Math.min(97, 50 - (ch.position / 4) * 50));
+                return (
+                  <div
+                    key={ch.id}
+                    className="scope-ground-tag"
+                    style={{
+                      top: `${yPct}%`,
+                      color: ch.color,
+                      ['--ch-color' as string]: ch.color,
+                    }}
+                    title={`${ch.id} Zero Level (Pos: ${ch.position > 0 ? '+' : ''}${ch.position} div)`}
+                  >
+                    <span>{ch.id.slice(2)}</span>▶
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Real oscilloscope right-bezel trigger level marker */}
+            {(() => {
+              const trigCh = channels.find((c) => c.id === trigger.source);
+              const trigScale = trigCh ? scales.get(trigCh.id) : undefined;
+              if (!trigCh || !trigScale) return null;
+              const yPct = Math.max(3, Math.min(97, 50 - (trigCh.position / 4) * 50 - ((trigger.level / trigScale) / 4) * 50));
+              return (
+                <div
+                  className="scope-trigger-tag"
+                  style={{
+                    top: `${yPct}%`,
+                    color: trigCh.color,
+                    ['--ch-color' as string]: trigCh.color,
+                  }}
+                  title={`Trigger Level: ${formatMag(trigger.level, channelUnit(trigCh))}`}
+                >
+                  ◀<span>T</span>
+                </div>
+              );
+            })()}
+
+            {/* Real oscilloscope top-bezel trigger time pointer */}
+            <div className="scope-trig-time-marker" title="Trigger Time Center">
+              ▼
+            </div>
+
+            {/* touch-friendly cursor selector pills */}
+            <div className="scope-cursor-pills" role="toolbar" aria-label="Cursor selector">
+              <button
+                type="button"
+                className={`scope-cursor-pill ${activeCursor === 'A' ? 'is-active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveCursor('A');
+                }}
+                title={t('osc.cursorA') || 'Cursor A'}
+                aria-pressed={activeCursor === 'A'}
+              >
+                ⌖ A{cursorA != null ? ' ●' : ''}
+              </button>
+              <button
+                type="button"
+                className={`scope-cursor-pill ${activeCursor === 'B' ? 'is-active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveCursor('B');
+                }}
+                title={t('osc.cursorB') || 'Cursor B'}
+                aria-pressed={activeCursor === 'B'}
+              >
+                ⌖ B{cursorB != null ? ' ●' : ''}
+              </button>
+              {(cursorA != null || cursorB != null) && (
+                <button
+                  type="button"
+                  className="scope-cursor-pill is-clear"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCursorA(null);
+                    setCursorB(null);
+                  }}
+                  title={t('osc.clearCursors') || 'Clear cursors'}
+                  aria-label={t('osc.clearCursors') || 'Clear cursors'}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
             {/* status pill */}
             <div className="scope-status-pill" data-running={isRunning} data-signal={hasSignal}>
               <span className="scope-status-dot" />
@@ -861,6 +1027,11 @@ export function Oscilloscope() {
                   : isRunning
                     ? `● ${t('osc.live') || 'LIVE'} · ${formatTime(timeDiv)}/div · ${sampleCount} ${t('osc.pts') || 'pts'}`
                     : `❚❚ ${t('osc.held') || 'HELD'} · ${sampleCount} ${t('osc.pts') || 'pts'}`}
+              {hasChannels && hasSignal && (
+                <span className={`scope-trig-chip ${win.tTrig != null ? 'is-trig' : trigger.mode === 'auto' ? 'is-auto' : 'is-wait'}`}>
+                  {win.tTrig != null ? "TRIG'D" : trigger.mode === 'auto' ? 'AUTO' : 'WAIT'}
+                </span>
+              )}
             </div>
 
             {/* scale pills */}
@@ -875,9 +1046,9 @@ export function Oscilloscope() {
               </div>
             )}
 
-            {/* trigger badge */}
-            {hasChannels && win.tTrig == null && trigger.mode !== 'auto' && (
-              <div className="scope-trig-warn">⚠ {t('osc.noTrigger') || 'waiting for trigger'}</div>
+            {/* trigger badge (only in normal/single mode when waiting for trigger) */}
+            {hasChannels && hasSignal && win.tTrig == null && trigger.mode !== 'auto' && (
+              <div className="scope-trig-warn">⏳ {t('osc.noTrigger') || 'Waiting for trigger'}</div>
             )}
 
             {/* hover tooltip */}
@@ -1037,6 +1208,14 @@ export function Oscilloscope() {
             >
               {t('probe.trigger') || 'Trigger'}
             </button>
+            <button
+              role="tab"
+              aria-selected={sidebarTab === 'measurements'}
+              className={`scope-side-tab-measurements ${sidebarTab === 'measurements' ? 'active' : ''}`}
+              onClick={() => setSidebarTab('measurements')}
+            >
+              {t('osc.stats') || 'Measurements'}
+            </button>
           </div>
 
           {sidebarTab === 'channels' ? (
@@ -1071,6 +1250,7 @@ export function Oscilloscope() {
                           updateChannel(ch.id, { enabled: !ch.enabled });
                         }}
                         title={ch.enabled ? 'mute channel' : 'enable channel'}
+                        aria-label={`${ch.id} ${ch.enabled ? 'mute' : 'enable'}`}
                       >
                         <span className="scope-switch-knob" />
                       </button>
@@ -1160,16 +1340,32 @@ export function Oscilloscope() {
                     )}
 
                     {!active && (
-                      <button
-                        className="scope-card-add"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedChannel(ch.id);
-                          startPlacement(ch.id === 'CH3' || ch.id === 'CH4' ? 'current' : 'voltage');
-                        }}
-                      >
-                        ＋ {t('osc.addProbe') || 'Click to attach a probe'}
-                      </button>
+                      <div className="scope-card-empty-row compact">
+                        <button
+                          type="button"
+                          className="scope-card-add-btn is-v"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedChannel(ch.id);
+                            startPlacement('voltage');
+                          }}
+                          title={t('probe.voltageProbe') || 'Voltage probe'}
+                        >
+                          ＋V {t('probe.voltage') || 'Voltage'}
+                        </button>
+                        <button
+                          type="button"
+                          className="scope-card-add-btn is-a"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedChannel(ch.id);
+                            startPlacement('current');
+                          }}
+                          title={t('probe.currentProbe') || 'Current probe'}
+                        >
+                          ＋A {t('probe.current') || 'Current'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -1178,7 +1374,7 @@ export function Oscilloscope() {
                 {t('osc.dragLevel') || 'Tip: drag the dashed trigger line on the screen to set its level.'}
               </p>
             </div>
-          ) : (
+          ) : sidebarTab === 'trigger' ? (
             <div className="scope-trigger-card">
               <div className="scope-field">
                 <span>{t('osc.source') || 'Source'}</span>
@@ -1248,6 +1444,53 @@ export function Oscilloscope() {
                 </div>
               </div>
             </div>
+          ) : (
+            <div className="scope-side-measurements">
+              {enabledChannels.length === 0 ? (
+                <div className="scope-side-empty-stats">
+                  <p>{t('probe.noMeasurement') || 'No active channels to measure.'}</p>
+                </div>
+              ) : (
+                enabledChannels.map((ch) => {
+                  const st = stats.get(ch.id);
+                  if (!st) return null;
+                  const unit = channelUnit(ch);
+                  const p = channelSymbol(ch);
+                  const last = channelSamples[ch.id][channelSamples[ch.id].length - 1]?.value ?? 0;
+                  return (
+                    <div key={ch.id} className="scope-stat-card" style={{ ['--ch-color' as string]: ch.color }}>
+                      <div className="scope-stat-head">
+                        <span className="scope-stat-ch">{ch.id}</span>
+                        <span className="scope-stat-live">{formatMag(last, unit)}</span>
+                      </div>
+                      <div className="scope-stat-grid">
+                        <span>Max <b>{formatMag(st.max, unit)}</b></span>
+                        <span>Min <b>{formatMag(st.min, unit)}</b></span>
+                        <span>{p}pp <b>{formatMag(st.pp, unit)}</b></span>
+                        <span>{p}avg <b>{formatMag(st.avg, unit)}</b></span>
+                        <span>{p}rms <b>{formatMag(st.rms, unit)}</b></span>
+                        <span>{t('osc.freq') || 'Freq'} <b>{st.frequency != null ? formatMag(st.frequency, 'Hz') : '—'}</b></span>
+                        {ch.logic && (
+                          <>
+                            <span>
+                              Duty{' '}
+                              <b>
+                                {logicDutyCycle(channelSamples[ch.id]) != null
+                                  ? `${(logicDutyCycle(channelSamples[ch.id])! * 100).toFixed(0)}%`
+                                  : '—'}
+                              </b>
+                            </span>
+                            <span>
+                              Edges <b>{logicEdgeCount(channelSamples[ch.id])}</b>
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           )}
 
           {/* dev-only acquisition diagnostics (never in production) */}
@@ -1278,6 +1521,59 @@ export function Oscilloscope() {
             </details>
           )}
         </aside>
+      </div>
+
+      {/* ===== Front-Panel BNC Input Bar ===== */}
+      <div className="scope-bnc-bar" role="region" aria-label="BNC Channel Inputs">
+        <div className="scope-bnc-cluster">
+          <span className="scope-bnc-caption">INPUTS · 1MΩ 15pF ≤400Vpk</span>
+          <div className="scope-bnc-ports">
+            {channels.map((ch) => {
+              const active = channelHasMeasurement(ch);
+              const stale = active && targetStates.get(ch.id) === 'stale';
+              const val = channelSamples[ch.id]?.[channelSamples[ch.id].length - 1]?.value;
+              return (
+                <div
+                  key={ch.id}
+                  className={`scope-bnc-jack ${active ? 'is-connected' : 'is-empty'} ${selectedChannelId === ch.id ? 'is-selected' : ''}`}
+                  style={{ ['--ch-color' as string]: ch.color }}
+                  onClick={() => {
+                    setSelectedChannel(ch.id);
+                    if (active) {
+                      if (!stale) locateChannel(ch.id);
+                    } else {
+                      startPlacement(ch.id === 'CH3' || ch.id === 'CH4' ? 'current' : 'voltage');
+                    }
+                  }}
+                  title={
+                    active
+                      ? `${ch.id}: ${describeChannel(ch)} (${val != null ? formatMag(val, channelUnit(ch)) : ''}) — Click to locate`
+                      : `${ch.id} Unconnected — Click to attach probe`
+                  }
+                >
+                  <div className="scope-bnc-socket">
+                    <div className="scope-bnc-outer-ring" />
+                    <div className="scope-bnc-inner-pin" />
+                    <div className="scope-bnc-led-halo" />
+                  </div>
+                  <div className="scope-bnc-meta">
+                    <span className="scope-bnc-label">{ch.id}</span>
+                    <span className="scope-bnc-val">
+                      {active && val != null ? formatMag(val, channelUnit(ch)) : 'OPEN'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="scope-bnc-calib">
+          <div className="scope-calib-socket">
+            <div className="scope-calib-pin" />
+          </div>
+          <span className="scope-calib-label">CAL 1kHz 3V</span>
+        </div>
       </div>
     </div>
   );

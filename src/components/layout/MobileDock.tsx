@@ -9,9 +9,6 @@ export function MobileDock() {
   const setOverlay = useUiStore((s) => s.setOverlay);
   const setTool = useUiStore((s) => s.setTool);
   const tool = useUiStore((s) => s.tool);
-  const bottomOpen = useUiStore((s) => s.bottomPanelOpen);
-  const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
-  const setBottomPanelOpen = useUiStore((s) => s.setBottomPanelOpen);
   const simOn = useUiStore((s) => s.simulationEnabled);
   const setSim = useUiStore((s) => s.setSimulationEnabled);
   const status = useSimulationStore((s) => s.status);
@@ -71,10 +68,14 @@ export function MobileDock() {
       <button
         type="button"
         className="dock-btn"
-        data-active={bottomOpen}
+        data-active={useUiStore((s) => s.scopeFloatingOpen)}
         onClick={() => {
-          setBottomPanelTab('oscilloscope');
-          setBottomPanelOpen(!bottomOpen);
+          const s = useUiStore.getState();
+          if (s.scopeFloatingOpen && s.scopeFloatingMinimized) {
+            s.setScopeFloatingMinimized(false);
+          } else {
+            s.setScopeFloatingOpen(!s.scopeFloatingOpen);
+          }
         }}
       >
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">

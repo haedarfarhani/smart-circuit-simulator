@@ -133,8 +133,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => {
     errors: [],
     warnings: [],
     dt: DEFAULT_DT,
-    samplingRate: 1000, // Hz — 20 points per cycle at 50 Hz
-    maxSamples: 10000,
+    samplingRate: 5000, // Hz — 100 points per cycle at 50 Hz for smooth, non-aliased waveforms
+    maxSamples: 25000,
     capacitorVoltage: new Map(),
     inductorCurrent: new Map(),
     zenerJunctionTemp: new Map(),

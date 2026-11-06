@@ -216,6 +216,15 @@ describe('findTriggerTime', () => {
     expect(t).toBeCloseTo(50 * 1e-3, 6);
   });
 
+  it('finds rising crossing for unipolar signal starting at level 0', () => {
+    const samples: ChannelSample[] = [];
+    for (let i = 0; i < 100; i++) {
+      samples.push({ t: i * 1e-3, value: i < 50 ? 0 : 0.5 });
+    }
+    const t = findTriggerTime(samples, 0, 'rising');
+    expect(t).toBeCloseTo(50 * 1e-3, 6);
+  });
+
   it('returns null when the level is never crossed', () => {
     const samples: ChannelSample[] = Array.from({ length: 10 }, (_, i) => ({
       t: i * 1e-3,

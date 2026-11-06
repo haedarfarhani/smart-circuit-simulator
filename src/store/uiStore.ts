@@ -203,6 +203,8 @@ export interface UiState {
   recentTypes: string[];
   legendVisible: boolean;
   scopeFullscreen: boolean;
+  scopeFloatingOpen: boolean;
+  scopeFloatingMinimized: boolean;
   simToolbarExpanded: boolean;
   hudVisible: boolean;
 
@@ -240,6 +242,8 @@ export interface UiState {
   recordRecent(type: string): void;
   setLegendVisible(v: boolean): void;
   setScopeFullscreen(v: boolean): void;
+  setScopeFloatingOpen(v: boolean): void;
+  setScopeFloatingMinimized(v: boolean): void;
   toggleSimToolbar(): void;
   setHudVisible(v: boolean): void;
 }
@@ -280,6 +284,8 @@ export const useUiStore = create<UiState>((set, get) => {
     recentTypes: prefs.recentTypes,
     legendVisible: false,
     scopeFullscreen: false,
+    scopeFloatingOpen: false,
+    scopeFloatingMinimized: false,
     simToolbarExpanded: prefs.simToolbarExpanded,
     hudVisible: prefs.hudVisible,
 
@@ -345,7 +351,12 @@ export const useUiStore = create<UiState>((set, get) => {
       persistPrefs({ ...prefsFrom(get()), currentDirection: d });
     },
     setInspectorTab: (t) => set({ inspectorTab: t }),
-    setBottomPanelTab: (t) => set({ bottomPanelTab: t, bottomPanelOpen: true }),
+    setBottomPanelTab: (t) => {
+      if (t === 'oscilloscope') {
+        set({ scopeFloatingOpen: true, scopeFloatingMinimized: false });
+      }
+      set({ bottomPanelTab: t, bottomPanelOpen: true });
+    },
     setBottomPanelOpen: (v) => set({ bottomPanelOpen: v }),
     setBottomPanelHeight: (h) => {
       const height = clamp(
@@ -421,6 +432,8 @@ export const useUiStore = create<UiState>((set, get) => {
     },
     setLegendVisible: (v) => set({ legendVisible: v }),
     setScopeFullscreen: (v) => set({ scopeFullscreen: v }),
+    setScopeFloatingOpen: (v) => set({ scopeFloatingOpen: v }),
+    setScopeFloatingMinimized: (v) => set({ scopeFloatingMinimized: v }),
     toggleSimToolbar: () => {
       const v = !get().simToolbarExpanded;
       set({ simToolbarExpanded: v });

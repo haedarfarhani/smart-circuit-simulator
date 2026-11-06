@@ -21,6 +21,7 @@ import {
   type ComponentSolution,
 } from '../../core/solver';
 import { terminalWorld } from '../../core/geometry';
+import { resolveEnd } from '../../core/wirePath';
 import { SYMBOLS } from '../../core/symbols';
 import {
   CHANNEL_COLORS,
@@ -83,16 +84,47 @@ function componentCenter(doc: CircuitDoc, compId: string): MarkerPos | null {
 function branchDirection(
   doc: CircuitDoc,
   ch: OscilloscopeChannel,
+  markerPos?: Point | null,
 ): Point {
   if (ch.branchKind === 'wire') {
     const wire = doc.wires.find((w) => w.id === ch.branchId);
     if (wire) {
-      const a = wire.start.point ?? { x: 0, y: 0 };
-      const b = wire.end.point ?? { x: 0, y: 0 };
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy);
-      if (len > 0) return { x: dx / len, y: dy / len };
+      const s = resolveEnd(doc, wire.start);
+      const e = resolveEnd(doc, wire.end);
+      const pts: Point[] = [];
+      if (s) pts.push(s);
+      pts.push(...wire.waypoints);
+      if (e) pts.push(e);
+      if (pts.length >= 2) {
+        if (markerPos) {
+          let bestDist = Infinity;
+          let bestDir = { x: 1, y: 0 };
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.hypot(dx, dy);
+            if (len === 0) continue;
+            let t = ((markerPos.x - p1.x) * dx + (markerPos.y - p1.y) * dy) / (len * len);
+            t = Math.max(0, Math.min(1, t));
+            const projX = p1.x + t * dx;
+            const projY = p1.y + t * dy;
+            const dist = Math.hypot(markerPos.x - projX, markerPos.y - projY);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestDir = { x: dx / len, y: dy / len };
+            }
+          }
+          return bestDir;
+        }
+        const a = pts[0];
+        const b = pts[pts.length - 1];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 0) return { x: dx / len, y: dy / len };
+      }
     }
     return { x: 1, y: 0 };
   }
@@ -115,6 +147,7 @@ function VoltageMarker({
   pos,
   located,
   zoom,
+  touch = false,
   onIdentify,
 }: {
   ch: OscilloscopeChannel;
@@ -122,6 +155,7 @@ function VoltageMarker({
   pos: MarkerPos;
   located: boolean;
   zoom: number;
+  touch?: boolean;
   onIdentify: () => void;
 }) {
   const color = CHANNEL_COLORS[ch.id];
@@ -138,6 +172,12 @@ function VoltageMarker({
         onIdentify();
       }}
     >
+      {/* Invisible hit area for comfortable touch interaction */}
+      <circle
+        r={Math.max(r, (touch ? 20 : 12) / Math.sqrt(zoom))}
+        fill="transparent"
+        stroke="transparent"
+      />
       {located && (
         <circle
           className="probe-locate-ring"
@@ -188,6 +228,7 @@ function CurrentMarker({
   current,
   located,
   zoom,
+  touch = false,
   onIdentify,
 }: {
   ch: OscilloscopeChannel;
@@ -196,6 +237,7 @@ function CurrentMarker({
   current: number;
   located: boolean;
   zoom: number;
+  touch?: boolean;
   onIdentify: () => void;
 }) {
   const color = CHANNEL_COLORS[ch.id];
@@ -214,6 +256,12 @@ function CurrentMarker({
         onIdentify();
       }}
     >
+      {/* Invisible hit area for comfortable touch interaction */}
+      <circle
+        r={Math.max(len * 0.8, (touch ? 22 : 14) / Math.sqrt(zoom))}
+        fill="transparent"
+        stroke="transparent"
+      />
       {located && (
         <circle
           className="probe-locate-ring"
@@ -395,8 +443,6 @@ export function ProbeLayer({
   const updateChannel = useProbeStore((s) => s.updateChannel);
   const setSelectedChannel = useProbeStore((s) => s.setSelectedChannel);
   const locateChannel = useProbeStore((s) => s.locateChannel);
-  const setBottomPanelTab = useUiStore((s) => s.setBottomPanelTab);
-  const setBottomPanelOpen = useUiStore((s) => s.setBottomPanelOpen);
   const componentData = snapshot?.componentData ?? new Map<string, ComponentSolution>();
   const wireCurrents = snapshot?.wireCurrents ?? new Map<string, number>();
   const nodeVoltages = snapshot?.nodeVoltages ?? new Map<string, number>();
@@ -404,8 +450,8 @@ export function ProbeLayer({
   const identify = (id: ChannelId) => {
     setSelectedChannel(id);
     locateChannel(id);
-    setBottomPanelTab('oscilloscope');
-    setBottomPanelOpen(true);
+    useUiStore.getState().setScopeFloatingOpen(true);
+    useUiStore.getState().setScopeFloatingMinimized(false);
   };
 
   const nodeLabel = (nodeId: string): string => {
@@ -485,6 +531,7 @@ export function ProbeLayer({
                   pos={plusPos}
                   located={located}
                   zoom={zoom}
+                  touch={touch}
                   onIdentify={() => identify(ch.id)}
                 />
               )}
@@ -511,6 +558,7 @@ export function ProbeLayer({
                     pos={minusPos}
                     located={located}
                     zoom={zoom}
+                    touch={touch}
                     onIdentify={() => identify(ch.id)}
                   />
                 )
@@ -532,10 +580,11 @@ export function ProbeLayer({
 
         // Current channel
         const markerPos =
-          ch.branchKind === 'wire'
+          ch.positivePoint ??
+          (ch.branchKind === 'wire'
             ? wireMidpoint(doc, ch.branchId ?? '')
-            : componentCenter(doc, ch.branchId ?? '');
-        const dir = branchDirection(doc, ch);
+            : componentCenter(doc, ch.branchId ?? ''));
+        const dir = branchDirection(doc, ch, markerPos);
         const current =
           ch.branchKind === 'wire'
             ? (wireCurrents.get(ch.branchId ?? '') ?? 0)
@@ -550,6 +599,7 @@ export function ProbeLayer({
                 current={current}
                 located={located}
                 zoom={zoom}
+                touch={touch}
                 onIdentify={() => identify(ch.id)}
               />
             )}
@@ -572,44 +622,106 @@ export function ProbeLayer({
       {placement.mode === 'voltage' && (
         <g className="probe-placement">
           {placement.step === 2 && placement.plusPoint && (
-            <circle
-              cx={placement.plusPoint.x}
-              cy={placement.plusPoint.y}
-              r={5 / Math.sqrt(zoom)}
-              fill="#38bdf8"
-              stroke="#fff"
-              strokeWidth={1}
-              vectorEffect="non-scaling-stroke"
-              opacity={0.9}
-            />
+            <>
+              <circle
+                cx={placement.plusPoint.x}
+                cy={placement.plusPoint.y}
+                r={5 / Math.sqrt(zoom)}
+                fill="#38bdf8"
+                stroke="#fff"
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+                opacity={0.9}
+              />
+              {hoverTarget?.point && (
+                <line
+                  x1={placement.plusPoint.x}
+                  y1={placement.plusPoint.y}
+                  x2={hoverTarget.point.x}
+                  y2={hoverTarget.point.y}
+                  stroke="#38bdf8"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  vectorEffect="non-scaling-stroke"
+                  opacity={0.7}
+                />
+              )}
+            </>
           )}
           {hoverTarget?.kind === 'node' && (
             <g transform={`translate(${hoverTarget.point.x},${hoverTarget.point.y})`}>
               <circle
-                r={(touch ? 15 : 7) / Math.sqrt(zoom)}
+                r={(touch ? 16 : 8) / Math.sqrt(zoom)}
                 fill="none"
                 stroke={placement.step === 1 ? '#38bdf8' : '#f43f5e'}
-                strokeWidth={1.6}
+                strokeWidth={2}
                 vectorEffect="non-scaling-stroke"
                 className="probe-hover-ring"
               />
-              <circle r={2.5 / Math.sqrt(zoom)} fill="#fff" />
+              <circle r={2.8 / Math.sqrt(zoom)} fill={placement.step === 1 ? '#38bdf8' : '#f43f5e'} />
+              <g transform={`translate(${12 / Math.sqrt(zoom)}, ${-12 / Math.sqrt(zoom)})`}>
+                <rect
+                  x={-2}
+                  y={-9}
+                  width={24}
+                  height={14}
+                  rx={3}
+                  fill="#0f172a"
+                  stroke={placement.step === 1 ? '#38bdf8' : '#f43f5e'}
+                  strokeWidth={1}
+                />
+                <text
+                  x={10}
+                  y={1}
+                  fill={placement.step === 1 ? '#38bdf8' : '#f43f5e'}
+                  fontSize={9}
+                  fontWeight={800}
+                  fontFamily="sans-serif"
+                  textAnchor="middle"
+                >
+                  {placement.step === 1 ? '+V' : '−V'}
+                </text>
+              </g>
             </g>
           )}
         </g>
       )}
       {placement.mode === 'current' && hoverTarget?.kind === 'branch' && (
         <g className="probe-placement">
-          <circle
-            cx={hoverTarget.point.x}
-            cy={hoverTarget.point.y}
-            r={(touch ? 16 : 8) / Math.sqrt(zoom)}
-            fill="none"
-            stroke="#22c55e"
-            strokeWidth={1.6}
-            vectorEffect="non-scaling-stroke"
-            className="probe-hover-ring"
-          />
+          <g transform={`translate(${hoverTarget.point.x},${hoverTarget.point.y})`}>
+            <circle
+              r={(touch ? 16 : 9) / Math.sqrt(zoom)}
+              fill="none"
+              stroke="#22c55e"
+              strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
+              className="probe-hover-ring"
+            />
+            <circle r={2.8 / Math.sqrt(zoom)} fill="#22c55e" />
+            <g transform={`translate(${12 / Math.sqrt(zoom)}, ${-12 / Math.sqrt(zoom)})`}>
+              <rect
+                x={-2}
+                y={-9}
+                width={22}
+                height={14}
+                rx={3}
+                fill="#0f172a"
+                stroke="#22c55e"
+                strokeWidth={1}
+              />
+              <text
+                x={9}
+                y={1}
+                fill="#22c55e"
+                fontSize={9}
+                fontWeight={800}
+                fontFamily="sans-serif"
+                textAnchor="middle"
+              >
+                ＋A
+              </text>
+            </g>
+          </g>
         </g>
       )}
 

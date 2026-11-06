@@ -24,7 +24,7 @@ import { DigitalStateOverlay } from './DigitalOverlays';
 import { buildTopology } from '../../core/solver';
 import { lampBrightness, lampLoad } from '../../core/flow';
 import { synchronousSpeedRpm } from '../../core/acSolver';
-import { buildWirePath, offsetWire, toSvgPath } from '../../core/wirePath';
+import { buildWirePath, offsetWire, toSvgPath, resolveEnd } from '../../core/wirePath';
 import {
   hitTestWires,
   junctionNodes,
@@ -883,22 +883,87 @@ export function CircuitCanvas() {
    *
    * `touch` widens every hit radius so finger taps land reliably
    * (radii are expressed in SCREEN pixels and converted to world
-   * units by dividing by the zoom).
+   * units by dividing by the zoom, clamped to at least GRID_SIZE/2
+   * world units so the target remains reachable at high zoom levels).
    */
+  /** Project point p onto segment ab and return the closest point on the segment. */
+  const projectOntoSegment = (p: Point, a: Point, b: Point): Point => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return { x: a.x, y: a.y };
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return { x: Math.round((a.x + t * dx) * 10) / 10, y: Math.round((a.y + t * dy) * 10) / 10 };
+  };
+
+  /** Project point p onto the nearest segment of a wire. */
+  const projectOntoWire = (p: Point, wire: (typeof doc.wires)[number]): Point => {
+    const s = resolveEnd(doc, wire.start);
+    const e = resolveEnd(doc, wire.end);
+    const pts: Point[] = [];
+    if (s) pts.push(s);
+    pts.push(...wire.waypoints);
+    if (e) pts.push(e);
+    if (pts.length < 2) return p;
+
+    let bestDist = Infinity;
+    let bestPt = pts[0];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const proj = projectOntoSegment(p, pts[i], pts[i + 1]);
+      const d = Math.hypot(p.x - proj.x, p.y - proj.y);
+      if (d < bestDist) {
+        bestDist = d;
+        bestPt = proj;
+      }
+    }
+    return bestPt;
+  };
+
   const probeTargetAt = (
     world: Point,
     target: Element | null,
     touch = false,
   ): ProbeHoverTarget => {
     const ui = useUiStore.getState();
-    const px = (screenPx: number) => screenPx / ui.zoom;
+    const px = (screenPx: number) =>
+      Math.max(GRID_SIZE / 2, screenPx / ui.zoom);
+
     if (placement.mode === 'voltage') {
+      // 1. Direct terminal / junction node hit
       const node = findNodeAt(resolvedTopology, world, px(touch ? 26 : 14));
-      return node
-        ? { kind: 'node', nodeId: node.nodeId, point: node.point }
-        : null;
+
+      // 2. Wire hit: allows placing voltage probes anywhere along any wire!
+      const wireEl = target instanceof Element ? target.closest('[data-wire-id]') : null;
+      const wireId = wireEl ? wireEl.getAttribute('data-wire-id') : null;
+      const att = wireAttachmentAt(world, px(touch ? 30 : 12));
+      const targetWireId = wireId || att?.wireId;
+
+      if (targetWireId) {
+        const wire = doc.wires.find((w) => w.id === targetWireId);
+        if (wire) {
+          const s = resolveEnd(doc, wire.start);
+          const e = resolveEnd(doc, wire.end);
+          const sKey = s ? `${Math.round(s.x / 10) * 10},${Math.round(s.y / 10) * 10}` : null;
+          const eKey = e ? `${Math.round(e.x / 10) * 10},${Math.round(e.y / 10) * 10}` : null;
+          const nodeId =
+            (sKey ? resolvedTopology.nodeByKey.get(sKey) : null) ||
+            (eKey ? resolvedTopology.nodeByKey.get(eKey) : null);
+          if (nodeId) {
+            const point = (att && att.wireId === targetWireId) ? att.point : projectOntoWire(world, wire);
+            return { kind: 'node', nodeId, point };
+          }
+        }
+      }
+
+      if (node) {
+        return { kind: 'node', nodeId: node.nodeId, point: node.point };
+      }
+      return null;
     }
+
     if (placement.mode === 'current') {
+      // 1. Component hit
       const compEl =
         target instanceof Element ? target.closest('[data-comp-id]') : null;
       if (compEl) {
@@ -907,31 +972,35 @@ export function CircuitCanvas() {
         if (comp)
           return { kind: 'branch', id, branchKind: 'component', point: { x: comp.x, y: comp.y } };
       }
+
+      // 2. Wire element hit: project clicked world point onto wire segment directly!
       const wireEl =
         target instanceof Element ? target.closest('[data-wire-id]') : null;
       if (wireEl) {
         const id = wireEl.getAttribute('data-wire-id')!;
         const wire = doc.wires.find((w) => w.id === id);
         if (wire) {
-          const pts: Point[] = [];
-          if (wire.start.point) pts.push(wire.start.point);
-          pts.push(...wire.waypoints);
-          if (wire.end.point) pts.push(wire.end.point);
-          const mid = pts[Math.floor(pts.length / 2)] ?? null;
-          if (mid) return { kind: 'branch', id, branchKind: 'wire', point: mid };
+          const att = wireAttachmentAt(world, px(touch ? 30 : 14));
+          const point = (att && att.wireId === id) ? att.point : projectOntoWire(world, wire);
+          return { kind: 'branch', id, branchKind: 'wire', point };
         }
       }
-      // geometric fallbacks (hit the body of a wire / a terminal)
+
+      // 3. Geometric fallback: wire attachment near cursor
+      const att = wireAttachmentAt(world, px(touch ? 30 : 10));
+      if (att) {
+        return { kind: 'branch', id: att.wireId, branchKind: 'wire', point: att.point };
+      }
+
+      // 4. Terminal hit (treat as component)
       const term = findTerminal(world, px(touch ? 26 : 11));
       if (term) {
         const comp = doc.components.find((c) => c.id === term[0]);
         if (comp)
           return { kind: 'branch', id: term[0], branchKind: 'component', point: { x: comp.x, y: comp.y } };
       }
-      const att = wireAttachmentAt(world, px(touch ? 30 : 10));
-      if (att)
-        return { kind: 'branch', id: att.wireId, branchKind: 'wire', point: att.point };
-      // last resort for touch: the NEAREST branch within finger radius
+
+      // 5. Touch fallback: nearest branch with exact projection
       const near = nearestBranchAt(world, px(touch ? 34 : 14));
       if (near) return { kind: 'branch', id: near.id, branchKind: near.kind, point: near.point };
     }
@@ -951,8 +1020,7 @@ export function CircuitCanvas() {
 
   /**
    * Nearest electrical branch (component body or wire run) to a world
-   * point, within `maxDist` world units. Lets touch users attach a
-   * current probe without landing exactly on a thin wire.
+   * point, within `maxDist` world units. Projects to closest segment point.
    */
   const nearestBranchAt = (
     world: Point,
@@ -972,17 +1040,19 @@ export function CircuitCanvas() {
       }
     }
     for (const w of doc.wires) {
+      const s = resolveEnd(doc, w.start);
+      const e = resolveEnd(doc, w.end);
       const pts: Point[] = [];
-      if (w.start.point) pts.push(w.start.point);
+      if (s) pts.push(s);
       pts.push(...w.waypoints);
-      if (w.end.point) pts.push(w.end.point);
+      if (e) pts.push(e);
       for (let i = 0; i + 1 < pts.length; i++) {
         const d = distPointSegment(world, pts[i], pts[i + 1]);
         if (d < bestD) {
           bestD = d;
           bestId = w.id;
           bestKind = 'wire';
-          bestPoint = pts[i];
+          bestPoint = projectOntoSegment(world, pts[i], pts[i + 1]);
         }
       }
     }
@@ -1089,10 +1159,12 @@ export function CircuitCanvas() {
     // --- Oscilloscope probe placement owns the canvas ---
     const placement = probeStore.getState().placement;
     if (placement.mode !== 'idle') {
+      e.preventDefault();
       const hit = probeTargetAt(world, target, e.pointerType === 'touch');
       if (placement.mode === 'voltage' && hit?.kind === 'node') {
         if (placement.step === 1) {
           probeStore.getState().setVoltageFirstPoint(hit.nodeId, hit.point);
+          ui.setStatus(e.pointerType === 'touch' ? 'probe.tapVoltage2' : 'probe.placeVoltage2');
         } else {
           // Digital nodes render as step traces with duty/edge stats.
           const isLogic =
@@ -1104,6 +1176,7 @@ export function CircuitCanvas() {
                   (ci.nodes ?? []).includes(hit.nodeId),
               ) ?? false;
           probeStore.getState().setVoltageSecondPoint(hit.nodeId, hit.point, isLogic);
+          ui.setStatus('probe.voltageProbe');
         }
       } else if (placement.mode === 'current' && hit?.kind === 'branch') {
         const label =
@@ -1111,6 +1184,7 @@ export function CircuitCanvas() {
             ? (doc.components.find((c) => c.id === hit.id)?.label ?? '')
             : 'wire';
         probeStore.getState().setCurrentBranch(hit.id, hit.branchKind, hit.point, label);
+        ui.setStatus('probe.currentProbe');
       }
       setProbeHover(null);
       return;
@@ -1604,7 +1678,10 @@ export function CircuitCanvas() {
         className="canvas-svg"
         data-tool={tool}
         data-placing={placement.mode !== 'idle'}
+        data-placing-mode={placement.mode !== 'idle' ? placement.mode : undefined}
+        data-placing-step={placement.mode === 'voltage' ? placement.step : undefined}
         data-panning={isPanning || spaceHeld}
+        style={{ touchAction: placement.mode !== 'idle' ? 'none' : undefined }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
